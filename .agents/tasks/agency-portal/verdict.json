@@ -1,0 +1,9 @@
+{
+  "verdict": "CHANGES_REQUESTED",
+  "findings": [
+    "GET /api/projects has no isAdminAuthorized check — all client PRD records (client name, email, prd_content, blockers) are returned to any unauthenticated HTTP caller. Fix: add the x-admin-key guard at the top of the GET handler, matching the pattern already on POST and PATCH.",
+    "The Converted lead status is unreachable from the employee update flow. deriveStatus() in app/api/leads/[id]/route.ts never returns 'Converted', and LeadUpdateModal has no control for it. EmployeeStats computes a conversion rate against this status, so it will always show 0. Fix: add a 'Mark as converted' mechanism in the employee modal or admin LeadsTable and handle it in the API."
+  ],
+  "reviewed_at": "2026-10-20T01:40:55.000Z",
+  "reviewDoc": ".agents/tasks/agency-portal/2026-10-20-014055-review.md"
+}

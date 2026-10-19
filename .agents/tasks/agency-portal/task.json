@@ -1,0 +1,7 @@
+{
+  "task_id": "task-agency-portal",
+  "task_description": "Build a Next.js 14 App Router + Supabase agency portal with three access portals: Admin dashboard (/admin/[secretKey]), Employee portal (/employee/login + /employee/dashboard), and Developer/PRD status portal (/developer). Includes CSV lead import, lead pipeline management, PRD tracking, and Supabase RLS-based access control.",
+  "status": "pending",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003"],
+  "blocked_reason": null
+}

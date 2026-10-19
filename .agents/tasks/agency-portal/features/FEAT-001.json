@@ -1,0 +1,39 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Project scaffold, database schema, shared types, Supabase clients, middleware, and primitive UI components. This is the foundation layer — all other FEATs depend on these files existing. Independent of FEAT-002 and FEAT-003 in content but must be completed first.",
+  "status": "completed",
+  "steps": [
+    "1. Create package.json at repo root with dependencies: next@14, react@18, react-dom@18, @supabase/supabase-js@2, @supabase/auth-helpers-nextjs@0, papaparse@5, typescript@5, @types/react@18, @types/node@20, @types/papaparse@5, tailwindcss@3, autoprefixer@10, postcss@8. Scripts: dev=next dev, build=next build, start=next start, lint=next lint.",
+    "2. Create tsconfig.json with Next.js 14 recommended settings: strict true, target ES2017, moduleResolution bundler, paths alias @/* -> ./*.",
+    "3. Create next.config.js: module.exports = { experimental: { serverActions: true } } — minimal config sufficient for App Router + server actions.",
+    "4. Create postcss.config.js: tailwindcss and autoprefixer plugins.",
+    "5. Create tailwind.config.ts: content paths covering app/**/*.tsx, components/**/*.tsx. Theme extends default. No plugins.",
+    "6. Create .env.example documenting: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, ADMIN_SECRET_KEY.",
+    "7. Create supabase/migrations/001_schema.sql with the exact SQL from the spec: profiles table, leads table, projects_prd table, all check constraints, RLS enable statements, and three RLS policies (employees_own_leads, read_own_profile, developers_read_prd). Add updated_at trigger function for leads and projects_prd.",
+    "8. Create lib/types.ts: export TypeScript interfaces Profile, Lead, ProjectPRD. Export union type literals for all enum fields: LeadStatus, ServiceInterest, MeetingType, LovableGenerationStatus, DevelopmentStatusEnum, UserRole.",
+    "9. Create lib/supabase.ts: export createBrowserClient() using createClientComponentClient from @supabase/auth-helpers-nextjs. Mark with 'use client' directive.",
+    "10. Create lib/supabase-server.ts: export createServerClient(cookieStore: ReadonlyRequestCookies) using createServerComponentClient from @supabase/auth-helpers-nextjs. No 'use client' — server only.",
+    "11. Create middleware.ts at repo root. Import createMiddlewareClient from @supabase/auth-helpers-nextjs and NextResponse. Logic: (a) if pathname matches /admin/:path*, extract first segment after /admin/, compare to process.env.ADMIN_SECRET_KEY, redirect to /not-found on mismatch; (b) if pathname is /employee/dashboard, check supabase session, redirect to /employee/login if null. Export config.matcher = ['/admin/:path*', '/employee/dashboard'].",
+    "12. Create app/layout.tsx: HTML shell with <html lang='en'>, <body> with Tailwind base class, Inter font via next/font/google. Import globals.css (create app/globals.css with @tailwind base/components/utilities directives).",
+    "13. Create app/page.tsx: simple landing page with three navigation cards linking to /admin/[enter-key], /employee/login, /developer.",
+    "14. Create components/ui/Button.tsx: accepts variant (primary|secondary|danger), size (sm|md|lg), disabled, onClick, children. Tailwind styled.",
+    "15. Create components/ui/Modal.tsx: overlay + centered panel, accepts isOpen, onClose, title, children props. Closes on backdrop click.",
+    "16. Create components/ui/Badge.tsx: accepts status prop typed as LeadStatus. Maps statuses to Tailwind color classes: New=gray-100/gray-700, Contacted=blue-100/blue-700, Demo Sent=purple-100/purple-700, Meeting Scheduled=yellow-100/yellow-700, Site Visit Requested=orange-100/orange-700, Converted=green-100/green-700, Dropped=red-100/red-700.",
+    "17. Create components/ui/Card.tsx: white rounded shadow wrapper, accepts className and children."
+  ],
+  "acceptance_criteria": [
+    "Running `npm install` in the workspace root completes without errors.",
+    "Running `npx tsc --noEmit` exits 0 with no type errors across all files created in this FEAT.",
+    "middleware.ts exports a valid config.matcher covering /admin/:path* and /employee/dashboard.",
+    "lib/types.ts exports all required interfaces and enum unions.",
+    "supabase/migrations/001_schema.sql contains CREATE TABLE statements for profiles, leads, and projects_prd with all specified columns and constraints.",
+    "All four components/ui/ components render without TypeScript errors."
+  ],
+  "verification": [
+    "npm install",
+    "npx tsc --noEmit"
+  ],
+  "blocked_reason": null,
+  "findings": "1) @supabase/auth-helpers-nextjs@0.10.0 is deprecated in favour of @supabase/ssr — kept as-is per spec requirement. 2) A lib/database.types.ts stub was added (empty Database interface) so createClientComponentClient and createServerComponentClient generic parameters resolve without error; replace with `npx supabase gen types typescript` output when a Supabase project is available. 3) ReadonlyRequestCookies imported from next/dist/server/web/spec-extension/adapters/request-cookies — internal path but stable for Next.js 14; no TS errors. 4) `npx tsc --noEmit` exits 0 with zero errors. 5) git init performed on clean workspace; 20 files committed on branch main."
+}
