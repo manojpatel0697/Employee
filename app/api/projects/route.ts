@@ -10,8 +10,12 @@ function isAdminAuthorized(request: Request): boolean {
   return request.headers.get("x-admin-key") === adminKey;
 }
 
-// GET /api/projects — returns all PRDs joined with assigned developer full_name
-export async function GET() {
+// GET /api/projects — returns all PRDs joined with assigned developer full_name (admin only)
+export async function GET(request: Request) {
+  if (!isAdminAuthorized(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!

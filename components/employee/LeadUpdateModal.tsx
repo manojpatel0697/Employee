@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import type { Lead, ServiceInterest, MeetingType } from "@/lib/types";
+import type { Lead, LeadStatus, ServiceInterest, MeetingType } from "@/lib/types";
 import Modal from "@/components/ui/Modal";
 import Button from "@/components/ui/Button";
 
@@ -21,6 +21,7 @@ interface FormState {
   meeting_date_time: string | null;
   site_visit_requested: boolean;
   notes: string;
+  status: LeadStatus;
 }
 
 export default function LeadUpdateModal({
@@ -38,6 +39,7 @@ export default function LeadUpdateModal({
     meeting_date_time: lead.meeting_date_time,
     site_visit_requested: lead.site_visit_requested,
     notes: lead.notes,
+    status: lead.status,
   });
 
   const [loading, setLoading] = useState(false);
@@ -289,6 +291,53 @@ export default function LeadUpdateModal({
             placeholder="Add any remarks about this call / interaction…"
           />
         </div>
+
+        {/* Step 7 — Outcome / Status override */}
+        <fieldset className="rounded-lg border border-gray-200 p-4 bg-gray-50">
+          <legend className="text-sm font-semibold text-gray-700 px-1">
+            7. Outcome
+          </legend>
+          <p className="text-xs text-gray-500 mb-3">
+            Set the final outcome for this lead. Use &ldquo;Converted&rdquo; when the client has agreed to proceed.
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {(
+              [
+                "New",
+                "Contacted",
+                "Demo Sent",
+                "Meeting Scheduled",
+                "Site Visit Requested",
+                "Converted",
+                "Dropped",
+              ] as LeadStatus[]
+            ).map((s) => {
+              const colorMap: Record<LeadStatus, string> = {
+                New: "bg-gray-100 border-gray-300 text-gray-700",
+                Contacted: "bg-blue-50 border-blue-300 text-blue-700",
+                "Demo Sent": "bg-purple-50 border-purple-300 text-purple-700",
+                "Meeting Scheduled": "bg-yellow-50 border-yellow-300 text-yellow-700",
+                "Site Visit Requested": "bg-orange-50 border-orange-300 text-orange-700",
+                Converted: "bg-green-50 border-green-400 text-green-700",
+                Dropped: "bg-red-50 border-red-300 text-red-600",
+              };
+              const isSelected = form.status === s;
+              return (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setField("status", s)}
+                  className={`rounded-lg border px-3 py-2 text-xs font-medium transition-all
+                    ${colorMap[s]}
+                    ${isSelected ? "ring-2 ring-indigo-500 ring-offset-1 font-bold" : "opacity-70 hover:opacity-100"}`}
+                  aria-pressed={isSelected}
+                >
+                  {s}
+                </button>
+              );
+            })}
+          </div>
+        </fieldset>
 
         {error && (
           <p role="alert" className="text-sm text-red-600">

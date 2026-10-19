@@ -16,10 +16,23 @@ interface LeadUpdateBody {
   meeting_date_time?: string | null;
   site_visit_requested?: boolean;
   notes?: string;
+  /** When provided by the client, takes precedence over auto-derivation. */
+  status?: LeadStatus;
 }
+
+const VALID_STATUSES: LeadStatus[] = [
+  "New",
+  "Contacted",
+  "Demo Sent",
+  "Meeting Scheduled",
+  "Site Visit Requested",
+  "Converted",
+  "Dropped",
+];
 
 /**
  * Derives the lead status from boolean pipeline fields.
+ * Only used when the caller does not supply an explicit status.
  * Priority order (highest → lowest):
  *   site_visit_requested > meeting_scheduled > demo_website_sent
  *   > is_interested === false (Dropped) > is_interested === true (Contacted)
@@ -34,7 +47,9 @@ function deriveStatus(fields: LeadUpdateBody): LeadStatus {
   return "New";
 }
 
-// PATCH /api/leads/[id] — updates pipeline fields and auto-derives status.
+// PATCH /api/leads/[id] — updates pipeline fields.
+// If the body includes a valid `status`, it is used directly (allows Converted/Dropped).
+// Otherwise, status is auto-derived from the pipeline boolean fields.
 // Requires an authenticated Supabase session (employee or admin).
 export async function PATCH(
   request: Request,
@@ -60,11 +75,16 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const status = deriveStatus(body);
+  // Use explicit status if provided and valid; otherwise auto-derive from pipeline fields
+  const { status: explicitStatus, ...pipelineFields } = body;
+  const status: LeadStatus =
+    explicitStatus && VALID_STATUSES.includes(explicitStatus)
+      ? explicitStatus
+      : deriveStatus(pipelineFields);
 
   const { data, error } = await supabase
     .from("leads")
-    .update({ ...body, status, updated_at: new Date().toISOString() })
+    .update({ ...pipelineFields, status, updated_at: new Date().toISOString() })
     .eq("id", params.id)
     .select()
     .single();
