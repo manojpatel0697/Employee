@@ -1,0 +1,25 @@
+{
+  "id": "FEAT-003",
+  "type": "feat",
+  "description": "Developer/PRD status portal at /developer. Public, no auth required. Depends on FEAT-001 (types, clients). Independent of FEAT-002 (admin/employee portals) — reads from projects_prd via anon key + developers_read_prd RLS policy.",
+  "status": "completed",
+  "steps": [
+    "1. Create app/developer/page.tsx as a Server Component. Reads optional searchParams.clientEmail. Uses createServerClient(cookies()) with anon key to fetch from projects_prd with joined profiles!assigned_developer_id(full_name). If clientEmail param present, adds .ilike('client_email', clientEmail) filter. Renders a full-width white layout with a header ('Developer & PRD Status Portal'), a search input (client-side form that updates ?clientEmail= query param), and a grid of PRDStatusCard components.",
+    "2. Create components/developer/PRDStatusCard.tsx: Accepts project: ProjectPRD & { developer_name?: string }. Renders a Card with: (a) client name as heading; (b) client email in muted text; (c) prd_content snippet truncated to 200 chars with '...' suffix; (d) Lovable generation status 5-step horizontal stepper — steps are 'Pending Email Intake', 'Generated via Lovable', 'In Development', 'Review', 'Completed' — current step highlighted in indigo, completed steps in green, future in gray; (e) DevelopmentTimeline component for development_status; (f) current_blocker shown as a red warning box if non-null; (g) assigned developer name in footer.",
+    "3. Create components/developer/DevelopmentTimeline.tsx: Accepts currentStatus: DevelopmentStatusEnum. Renders a vertical or horizontal timeline of the 5 development stages: 'Not Started', 'Frontend Built', 'Backend & DB Hooked', 'Deployed', 'Live'. Current stage highlighted with a filled circle and bold label. Past stages shown with check icons in green. Future stages in gray with empty circles."
+  ],
+  "acceptance_criteria": [
+    "Running `npx tsc --noEmit` exits 0 with no type errors across all FEAT-003 files.",
+    "app/developer/page.tsx fetches projects_prd without requiring an authenticated session.",
+    "PRDStatusCard renders a 5-step Lovable status stepper where the current status step is visually distinct.",
+    "DevelopmentTimeline renders all 5 development stages with the current stage highlighted.",
+    "When ?clientEmail= query param is present, only matching PRDs are shown.",
+    "Running `npx next build` exits 0 with all three FEATs' files in place."
+  ],
+  "verification": [
+    "npx tsc --noEmit",
+    "npx next build"
+  ],
+  "blocked_reason": null,
+  "findings": "All 4 files created: app/developer/page.tsx (Server Component), components/developer/PRDStatusCard.tsx (5-step Lovable stepper + DevelopmentTimeline embed + blocker alert + developer footer), components/developer/DevelopmentTimeline.tsx (vertical 5-stage timeline with check icons), components/developer/ClientEmailSearch.tsx (client component for ?clientEmail= query param). npx tsc --noEmit exits 0. npx next build exits 0 — /developer route appears as dynamic (ƒ) server-rendered. The only warning from the build is a pre-existing next.config.js note about experimental.serverActions being redundant in Next.js 14."
+}
