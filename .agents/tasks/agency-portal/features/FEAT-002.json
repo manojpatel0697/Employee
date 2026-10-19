@@ -1,0 +1,39 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "All API routes plus the Admin dashboard and Employee portal pages and components. Depends on FEAT-001 (types, clients, UI primitives must exist). Independent of FEAT-003 (developer portal) — both read from the same DB but share no components.",
+  "status": "completed",
+  "steps": [
+    "1. Create app/api/leads/route.ts: GET handler uses service-role Supabase client (createClient(url, SERVICE_ROLE_KEY)) to fetch all leads joined with profiles (select *, profiles!assigned_to(full_name)). Returns JSON array. No POST — import route handles bulk.",
+    "2. Create app/api/leads/[id]/route.ts: PATCH handler. Reads JSON body with Lead update fields. Derives status automatically: if site_visit_requested -> 'Site Visit Requested'; else if meeting_scheduled -> 'Meeting Scheduled'; else if demo_website_sent -> 'Demo Sent'; else if is_interested === false -> 'Dropped'; else if is_interested === true -> 'Contacted'; else 'New'. Uses service-role client for the update. Returns updated lead row.",
+    "3. Create app/api/leads/import/route.ts: POST handler accepting multipart/form-data. Reads 'file' field as text. Parses with papaparse.parse(csvText, { header: true, skipEmptyLines: true }). Maps each row to Lead insert shape (company_name, contact_person, email, phone, source). Bulk inserts via service-role client supabase.from('leads').insert(rows). Returns { inserted: count }.",
+    "4. Create app/api/projects/route.ts: GET handler fetches all projects_prd joined with profiles!assigned_developer_id(full_name) using service-role client. POST handler inserts a new project_prd row. PATCH handler updates a project_prd row by id.",
+    "5. Create app/api/admin/assign/route.ts: POST handler reads { leadId, employeeId } from JSON body. Updates leads.assigned_to using service-role client. Returns updated lead.",
+    "6. Create app/employee/login/page.tsx as a Client Component ('use client'). Email + password form state. On submit calls supabase.auth.signInWithPassword({ email, password }). On success router.push('/employee/dashboard'). Magic link button calls supabase.auth.signInWithOtp({ email }). Shows error messages inline. Clean centered card layout with Tailwind.",
+    "7. Create app/employee/dashboard/page.tsx as a Server Component. Uses createServerClient(cookies()) to call supabase.from('leads').select('*').eq('assigned_to', user.id). Passes leads array to LeadsList component. Dark header bar with user email and Sign Out button (client island).",
+    "8. Create components/employee/LeadsList.tsx: 'use client'. Accepts leads: Lead[]. Renders a responsive table with columns: Company, Contact, Phone, Status (Badge), Service Interest, Last Updated. Each row has an 'Update' button that opens LeadUpdateModal with the selected lead.",
+    "9. Create components/employee/LeadUpdateModal.tsx: 'use client'. Accepts lead: Lead, onClose, onSaved callbacks. Renders the 6-step form inside Modal.tsx: (1) service_interest radio group; (2) is_interested radio Yes/No; (3) demo_website_sent checkbox + demo_liked radio (shown only when demo_website_sent=true); (4) meeting_scheduled checkbox + meeting_type radio (Google Meet/Onsite) + meeting_date_time datetime-local input (shown when meeting_scheduled=true); (5) site_visit_requested checkbox; (6) notes textarea. On submit PATCHes /api/leads/[id] with form state. Shows loading state on button. Calls onSaved() on success.",
+    "10. Create app/admin/[secretKey]/page.tsx as a Server Component. First line: if params.secretKey !== process.env.ADMIN_SECRET_KEY redirect to /not-found. Fetches employees list (profiles where role='employee'), all leads, all projects_prd via service-role client. Renders dark sidebar layout with three tabs: Leads, Analytics, PRDs. Passes data as props to child components.",
+    "11. Create components/admin/CSVImport.tsx: 'use client'. File input accepting .csv. On file select reads as text, POSTs to /api/leads/import as FormData. Shows progress spinner, success message with inserted count, or error.",
+    "12. Create components/admin/LeadsTable.tsx: 'use client'. Accepts leads: Lead[], employees: Profile[]. Renders a sortable data table. Columns: Company, Contact, Email, Phone, Source, Status (Badge), Assigned To, Service Interest, Created At, Actions. Actions column has 'Assign' button per row that opens LeadAssignModal.",
+    "13. Create components/admin/LeadAssignModal.tsx: 'use client'. Accepts lead: Lead, employees: Profile[], onClose, onAssigned. Dropdown of employees (full_name). On submit POSTs to /api/admin/assign. Calls onAssigned() on success.",
+    "14. Create components/admin/EmployeeStats.tsx: Accepts leads: Lead[], employees: Profile[]. Computes per-employee stats: total assigned leads, conversion rate (Converted / total), meetings scheduled count, site visits requested count. Renders a grid of stat cards, one row per employee, with colored metric badges.",
+    "15. Create components/admin/PRDManager.tsx: 'use client'. Accepts projects: ProjectPRD[]. Renders a table of PRDs. Each row shows: client name, email, Lovable status (Badge), development status (Badge), current blocker, assigned developer. 'Edit' button opens an inline modal for updating status fields and blocker text. 'New PRD' button at top opens create modal with fields: client_name, client_email, prd_content textarea, lovable_generation_status select, development_status select."
+  ],
+  "acceptance_criteria": [
+    "Running `npx tsc --noEmit` exits 0 with no type errors across all FEAT-002 files.",
+    "app/api/leads/import/route.ts correctly parses a CSV string with papaparse and returns { inserted: N }.",
+    "app/api/leads/[id]/route.ts correctly auto-derives the status field from boolean pipeline fields.",
+    "app/admin/[secretKey]/page.tsx redirects to /not-found when params.secretKey does not match ADMIN_SECRET_KEY.",
+    "LeadUpdateModal shows meeting type and datetime fields only when meeting_scheduled is checked.",
+    "LeadUpdateModal shows demo_liked radio only when demo_website_sent is checked.",
+    "EmployeeStats renders one stats row per employee with correct column headers.",
+    "Running `npx next build` exits 0."
+  ],
+  "verification": [
+    "npx tsc --noEmit",
+    "npx next build"
+  ],
+  "blocked_reason": null,
+  "findings": "1) All 5 API routes have `export const dynamic = 'force-dynamic'` added to prevent build-time static prerendering errors. 2) A .env.local file with placeholder Supabase credentials was added to satisfy the Supabase client URL validation during `next build` (real credentials must be set before running the app). 3) A SignOutButton client island (components/employee/SignOutButton.tsx) was added to keep app/employee/dashboard/page.tsx a pure Server Component while providing interactive sign-out. 4) A /not-found route (app/not-found/page.tsx) was added since middleware.ts and admin page redirect to /not-found on auth failure. 5) `npx tsc --noEmit` exits 0. 6) `npx next build` exits 0 — all 11 routes compiled and linked successfully."
+}
