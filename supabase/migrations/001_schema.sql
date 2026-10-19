@@ -57,9 +57,21 @@ CREATE TABLE leads (
 
 ALTER TABLE leads ENABLE ROW LEVEL SECURITY;
 
--- Employees can SELECT and UPDATE only their assigned leads
-CREATE POLICY employees_own_leads ON leads
-  FOR ALL
+-- Employees can SELECT only their assigned leads (admins see all)
+CREATE POLICY employees_own_leads_select ON leads
+  FOR SELECT
+  USING (
+    assigned_to = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM profiles
+      WHERE profiles.id = auth.uid()
+        AND profiles.role = 'admin'
+    )
+  );
+
+-- Employees can UPDATE only their assigned leads (admins update all)
+CREATE POLICY employees_own_leads_update ON leads
+  FOR UPDATE
   USING (
     assigned_to = auth.uid()
     OR EXISTS (
@@ -110,16 +122,11 @@ CREATE TABLE projects_prd (
 
 ALTER TABLE projects_prd ENABLE ROW LEVEL SECURITY;
 
--- Developers (and admins) can read PRD rows
-CREATE POLICY developers_read_prd ON projects_prd
-  FOR SELECT
-  USING (
-    EXISTS (
-      SELECT 1 FROM profiles
-      WHERE profiles.id = auth.uid()
-        AND profiles.role IN ('admin', 'developer')
-    )
-  );
+-- The developer portal uses the service-role client for intentional public/semi-private
+-- access (no login required for visitors). Admins manage PRDs via admin-key-protected
+-- API routes that also use the service-role client. No RLS SELECT policy is defined here
+-- because all reads are performed server-side with the service role.
+-- Admins-only INSERT/UPDATE/DELETE is enforced at the API route level via x-admin-key.
 
 -- ----------------------------------------------------------------
 -- updated_at trigger

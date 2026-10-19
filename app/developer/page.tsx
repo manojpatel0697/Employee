@@ -17,9 +17,9 @@ export default async function DeveloperPage({
 }: DeveloperPageProps) {
   const clientEmail = searchParams.clientEmail?.trim() ?? "";
 
-  // Use the service-role client so unauthenticated visitors can read PRDs.
-  // The developers_read_prd RLS policy requires an authenticated session, so
-  // the anon client would return an empty result set for public visitors.
+  // Use the service-role client for intentional public/semi-private access.
+  // The developer portal is accessible without authentication (per spec: public/semi-private).
+  // All reads are performed server-side with the service role; no anon RLS policy is needed.
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!

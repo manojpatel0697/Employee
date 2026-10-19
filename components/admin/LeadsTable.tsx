@@ -61,7 +61,41 @@ export default function LeadsTable({
 
   return (
     <>
-      <div className="overflow-x-auto rounded-2xl bg-white shadow-sm ring-1 ring-gray-200">
+      {/* Mobile card list — visible below md breakpoint */}
+      <div className="md:hidden space-y-3">
+        {sorted.length === 0 ? (
+          <p className="text-center text-gray-400 py-8">No leads found.</p>
+        ) : (
+          sorted.map((lead) => (
+            <div
+              key={lead.id}
+              className="rounded-2xl bg-white shadow-sm ring-1 ring-gray-200 p-4 space-y-2"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium text-gray-900 truncate">{lead.company_name}</span>
+                <Badge status={lead.status} />
+              </div>
+              <div className="text-sm text-gray-600">{lead.contact_person}</div>
+              <div className="text-sm text-gray-500">{lead.email}</div>
+              <div className="text-sm text-gray-500">{lead.phone}</div>
+              <div className="flex items-center justify-between text-xs text-gray-400">
+                <span>{lead.service_interest}</span>
+                <span>{getEmployeeName(lead.assigned_to)}</span>
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setSelectedLead(lead)}
+              >
+                Assign
+              </Button>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Desktop table — hidden below md breakpoint */}
+      <div className="hidden md:block overflow-x-auto rounded-2xl bg-white shadow-sm ring-1 ring-gray-200">
         <table className="min-w-full divide-y divide-gray-200 text-sm">
           <thead className="bg-gray-50">
             <tr>

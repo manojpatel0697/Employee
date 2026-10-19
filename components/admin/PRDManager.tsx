@@ -147,7 +147,46 @@ export default function PRDManager({ projects: initialProjects, secretKey }: PRD
         </Button>
       </div>
 
-      <div className="overflow-x-auto rounded-2xl bg-white shadow-sm ring-1 ring-gray-200">
+      {/* Mobile card list — visible below md breakpoint */}
+      <div className="md:hidden space-y-3">
+        {projects.length === 0 ? (
+          <p className="text-center text-gray-400 py-8">
+            No PRDs yet. Click &ldquo;+ New PRD&rdquo; to create one.
+          </p>
+        ) : (
+          projects.map((p) => (
+            <div
+              key={p.id}
+              className="rounded-2xl bg-white shadow-sm ring-1 ring-gray-200 p-4 space-y-2"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium text-gray-900 truncate">{p.client_name}</span>
+                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${lovableColors[p.lovable_generation_status]}`}>
+                  {p.lovable_generation_status}
+                </span>
+              </div>
+              <div className="text-sm text-gray-500">{p.client_email}</div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${devColors[p.development_status]}`}>
+                  {p.development_status}
+                </span>
+                {p.developer_name && (
+                  <span className="text-xs text-gray-500">{p.developer_name}</span>
+                )}
+              </div>
+              {p.current_blocker && (
+                <div className="text-xs text-gray-500 truncate">Blocker: {p.current_blocker}</div>
+              )}
+              <Button variant="secondary" size="sm" onClick={() => openEdit(p)}>
+                Edit
+              </Button>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Desktop table — hidden below md breakpoint */}
+      <div className="hidden md:block overflow-x-auto rounded-2xl bg-white shadow-sm ring-1 ring-gray-200">
         <table className="min-w-full divide-y divide-gray-200 text-sm">
           <thead className="bg-gray-50">
             <tr>

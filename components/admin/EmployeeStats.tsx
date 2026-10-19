@@ -41,63 +41,90 @@ export default function EmployeeStats({ leads, employees }: EmployeeStatsProps) 
   }
 
   return (
-    <div className="overflow-x-auto rounded-2xl bg-white shadow-sm ring-1 ring-gray-200">
-      <table className="min-w-full divide-y divide-gray-200 text-sm">
-        <thead className="bg-gray-50">
-          <tr>
-            {[
-              "Employee",
-              "Total Leads",
-              "Converted",
-              "Conversion Rate",
-              "Meetings Scheduled",
-              "Site Visits Requested",
-            ].map((col) => (
-              <th
-                key={col}
-                scope="col"
-                className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider"
-              >
-                {col}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-100 bg-white">
-          {stats.map(({ employee, totalLeads, converted, conversionRate, meetingsScheduled, siteVisitsRequested }) => (
-            <tr key={employee.id} className="hover:bg-gray-50 transition-colors">
-              <td className="px-4 py-3 font-medium text-gray-900 whitespace-nowrap">
-                {employee.full_name}
-              </td>
-              <td className="px-4 py-3">
-                <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700">
-                  {totalLeads}
-                </span>
-              </td>
-              <td className="px-4 py-3">
-                <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700">
-                  {converted}
-                </span>
-              </td>
-              <td className="px-4 py-3">
-                <span className="inline-flex items-center rounded-full bg-indigo-100 px-2.5 py-0.5 text-xs font-medium text-indigo-700">
-                  {conversionRate}
-                </span>
-              </td>
-              <td className="px-4 py-3">
-                <span className="inline-flex items-center rounded-full bg-yellow-100 px-2.5 py-0.5 text-xs font-medium text-yellow-700">
-                  {meetingsScheduled}
-                </span>
-              </td>
-              <td className="px-4 py-3">
-                <span className="inline-flex items-center rounded-full bg-orange-100 px-2.5 py-0.5 text-xs font-medium text-orange-700">
-                  {siteVisitsRequested}
-                </span>
-              </td>
+    <>
+      {/* Mobile card list — visible below md breakpoint */}
+      <div className="md:hidden space-y-3">
+        {stats.map(({ employee, totalLeads, converted, conversionRate, meetingsScheduled, siteVisitsRequested }) => (
+          <div
+            key={employee.id}
+            className="rounded-2xl bg-white shadow-sm ring-1 ring-gray-200 p-4 space-y-2"
+          >
+            <div className="font-medium text-gray-900">{employee.full_name}</div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+              <span className="text-gray-500">Total leads</span>
+              <span className="font-medium text-gray-700">{totalLeads}</span>
+              <span className="text-gray-500">Converted</span>
+              <span className="font-medium text-green-700">{converted}</span>
+              <span className="text-gray-500">Conversion rate</span>
+              <span className="font-medium text-indigo-700">{conversionRate}</span>
+              <span className="text-gray-500">Meetings</span>
+              <span className="font-medium text-yellow-700">{meetingsScheduled}</span>
+              <span className="text-gray-500">Site visits</span>
+              <span className="font-medium text-orange-700">{siteVisitsRequested}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Desktop table — hidden below md breakpoint */}
+      <div className="hidden md:block overflow-x-auto rounded-2xl bg-white shadow-sm ring-1 ring-gray-200">
+        <table className="min-w-full divide-y divide-gray-200 text-sm">
+          <thead className="bg-gray-50">
+            <tr>
+              {[
+                "Employee",
+                "Total Leads",
+                "Converted",
+                "Conversion Rate",
+                "Meetings Scheduled",
+                "Site Visits Requested",
+              ].map((col) => (
+                <th
+                  key={col}
+                  scope="col"
+                  className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider"
+                >
+                  {col}
+                </th>
+              ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody className="divide-y divide-gray-100 bg-white">
+            {stats.map(({ employee, totalLeads, converted, conversionRate, meetingsScheduled, siteVisitsRequested }) => (
+              <tr key={employee.id} className="hover:bg-gray-50 transition-colors">
+                <td className="px-4 py-3 font-medium text-gray-900 whitespace-nowrap">
+                  {employee.full_name}
+                </td>
+                <td className="px-4 py-3">
+                  <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700">
+                    {totalLeads}
+                  </span>
+                </td>
+                <td className="px-4 py-3">
+                  <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700">
+                    {converted}
+                  </span>
+                </td>
+                <td className="px-4 py-3">
+                  <span className="inline-flex items-center rounded-full bg-indigo-100 px-2.5 py-0.5 text-xs font-medium text-indigo-700">
+                    {conversionRate}
+                  </span>
+                </td>
+                <td className="px-4 py-3">
+                  <span className="inline-flex items-center rounded-full bg-yellow-100 px-2.5 py-0.5 text-xs font-medium text-yellow-700">
+                    {meetingsScheduled}
+                  </span>
+                </td>
+                <td className="px-4 py-3">
+                  <span className="inline-flex items-center rounded-full bg-orange-100 px-2.5 py-0.5 text-xs font-medium text-orange-700">
+                    {siteVisitsRequested}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
