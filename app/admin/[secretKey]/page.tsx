@@ -6,6 +6,9 @@ import LeadsTable from "@/components/admin/LeadsTable";
 import EmployeeStats from "@/components/admin/EmployeeStats";
 import PRDManager from "@/components/admin/PRDManager";
 
+// ProjectPRD row augmented with the joined developer name
+type ProjectWithDeveloperName = ProjectPRD & { developer_name?: string };
+
 interface AdminPageProps {
   params: { secretKey: string };
 }
@@ -37,9 +40,18 @@ export default async function AdminPage({ params }: AdminPageProps) {
       .order("created_at", { ascending: false }),
     supabase
       .from("projects_prd")
-      .select("*")
+      .select("*, profiles!assigned_developer_id(full_name)")
       .order("created_at", { ascending: false }),
   ]);
+
+  // Flatten the joined developer name into each project row
+  type RawProject = ProjectPRD & { profiles: { full_name: string } | null };
+  const projectsWithDevName: ProjectWithDeveloperName[] = (
+    (projects as RawProject[] | null) ?? []
+  ).map(({ profiles, ...rest }) => ({
+    ...rest,
+    developer_name: profiles?.full_name ?? undefined,
+  }));
 
   const secretKey = params.secretKey;
 
@@ -76,7 +88,7 @@ export default async function AdminPage({ params }: AdminPageProps) {
           <section id="leads">
             <h2 className="text-xl font-bold text-gray-900 mb-4">Lead Pipeline</h2>
             <div className="mb-6">
-              <CSVImport />
+              <CSVImport secretKey={secretKey} />
             </div>
             <LeadsTable
               leads={(leads as Lead[]) ?? []}
@@ -101,7 +113,7 @@ export default async function AdminPage({ params }: AdminPageProps) {
             <h2 className="text-xl font-bold text-gray-900 mb-4">
               Project PRDs
             </h2>
-            <PRDManager projects={(projects as ProjectPRD[]) ?? []} />
+            <PRDManager projects={projectsWithDevName} secretKey={secretKey} />
           </section>
         </div>
       </main>

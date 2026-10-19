@@ -5,7 +5,11 @@ import Button from "@/components/ui/Button";
 
 type UploadState = "idle" | "uploading" | "success" | "error";
 
-export default function CSVImport() {
+interface CSVImportProps {
+  secretKey: string;
+}
+
+export default function CSVImport({ secretKey }: CSVImportProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [state, setState] = useState<UploadState>("idle");
   const [insertedCount, setInsertedCount] = useState<number | null>(null);
@@ -25,6 +29,7 @@ export default function CSVImport() {
     try {
       const res = await fetch("/api/leads/import", {
         method: "POST",
+        headers: { "x-admin-key": secretKey },
         body: formData,
       });
 

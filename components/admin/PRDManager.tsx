@@ -10,7 +10,8 @@ import Button from "@/components/ui/Button";
 import Modal from "@/components/ui/Modal";
 
 interface PRDManagerProps {
-  projects: ProjectPRD[];
+  projects: (ProjectPRD & { developer_name?: string })[];
+  secretKey: string;
 }
 
 const LOVABLE_STATUSES: LovableGenerationStatus[] = [
@@ -62,8 +63,8 @@ function blankForm(): PRDFormFields {
   };
 }
 
-export default function PRDManager({ projects: initialProjects }: PRDManagerProps) {
-  const [projects, setProjects] = useState<ProjectPRD[]>(initialProjects);
+export default function PRDManager({ projects: initialProjects, secretKey }: PRDManagerProps) {
+  const [projects, setProjects] = useState<(ProjectPRD & { developer_name?: string })[]>(initialProjects);
 
   // Edit modal state
   const [editTarget, setEditTarget] = useState<ProjectPRD | null>(null);
@@ -95,7 +96,7 @@ export default function PRDManager({ projects: initialProjects }: PRDManagerProp
 
     const res = await fetch("/api/projects", {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-admin-key": secretKey },
       body: JSON.stringify({ id: editTarget.id, ...editForm }),
     });
 
@@ -108,7 +109,7 @@ export default function PRDManager({ projects: initialProjects }: PRDManagerProp
     }
 
     const updated = (await res.json()) as ProjectPRD;
-    setProjects((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+    setProjects((prev) => prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)));
     setEditTarget(null);
   }
 
@@ -120,7 +121,7 @@ export default function PRDManager({ projects: initialProjects }: PRDManagerProp
 
     const res = await fetch("/api/projects", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-admin-key": secretKey },
       body: JSON.stringify(createForm),
     });
 
@@ -177,7 +178,7 @@ export default function PRDManager({ projects: initialProjects }: PRDManagerProp
                   </span>
                 </td>
                 <td className="px-4 py-3 text-gray-500 max-w-[180px] truncate">{p.current_blocker ?? "—"}</td>
-                <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{p.assigned_developer_id ?? "—"}</td>
+                <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{p.developer_name ?? "—"}</td>
                 <td className="px-4 py-3 whitespace-nowrap">
                   <Button variant="secondary" size="sm" onClick={() => openEdit(p)}>
                     Edit

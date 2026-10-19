@@ -8,8 +8,19 @@ interface AssignBody {
   employeeId: string;
 }
 
+/** Verifies that the request carries a valid admin secret key header. */
+function isAdminAuthorized(request: Request): boolean {
+  const adminKey = process.env.ADMIN_SECRET_KEY;
+  if (!adminKey) return false;
+  return request.headers.get("x-admin-key") === adminKey;
+}
+
 // POST /api/admin/assign — assigns a lead to an employee
 export async function POST(request: Request) {
+  if (!isAdminAuthorized(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!

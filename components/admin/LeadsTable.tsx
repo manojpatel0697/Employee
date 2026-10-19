@@ -20,6 +20,7 @@ type SortKey = keyof Pick<
 export default function LeadsTable({
   leads: initialLeads,
   employees,
+  secretKey,
 }: LeadsTableProps) {
   const [leads, setLeads] = useState<Lead[]>(initialLeads);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
@@ -183,6 +184,7 @@ export default function LeadsTable({
         <LeadAssignModal
           lead={selectedLead}
           employees={employees}
+          secretKey={secretKey}
           onClose={() => setSelectedLead(null)}
           onAssigned={handleAssigned}
         />

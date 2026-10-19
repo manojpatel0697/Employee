@@ -3,6 +3,13 @@ import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
+/** Verifies that the request carries a valid admin secret key header. */
+function isAdminAuthorized(request: Request): boolean {
+  const adminKey = process.env.ADMIN_SECRET_KEY;
+  if (!adminKey) return false;
+  return request.headers.get("x-admin-key") === adminKey;
+}
+
 // GET /api/projects — returns all PRDs joined with assigned developer full_name
 export async function GET() {
   const supabase = createClient(
@@ -24,6 +31,10 @@ export async function GET() {
 
 // POST /api/projects — creates a new project PRD row
 export async function POST(request: Request) {
+  if (!isAdminAuthorized(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -51,6 +62,10 @@ export async function POST(request: Request) {
 
 // PATCH /api/projects — updates an existing project PRD row by id
 export async function PATCH(request: Request) {
+  if (!isAdminAuthorized(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!

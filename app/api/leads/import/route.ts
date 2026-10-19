@@ -14,8 +14,21 @@ interface CsvRow {
   [key: string]: string | undefined;
 }
 
+/** Verifies that the request carries a valid admin secret key header. */
+function isAdminAuthorized(request: Request): boolean {
+  const adminKey = process.env.ADMIN_SECRET_KEY;
+  if (!adminKey) return false;
+  const provided = request.headers.get("x-admin-key");
+  return provided === adminKey;
+}
+
 // POST /api/leads/import — accepts multipart/form-data with a 'file' field (CSV)
+// Requires x-admin-key header matching ADMIN_SECRET_KEY.
 export async function POST(request: Request) {
+  if (!isAdminAuthorized(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!

@@ -8,6 +8,7 @@ import Button from "@/components/ui/Button";
 interface LeadAssignModalProps {
   lead: Lead;
   employees: Profile[];
+  secretKey: string;
   onClose: () => void;
   onAssigned: (updatedLead: Lead) => void;
 }
@@ -15,6 +16,7 @@ interface LeadAssignModalProps {
 export default function LeadAssignModal({
   lead,
   employees,
+  secretKey,
   onClose,
   onAssigned,
 }: LeadAssignModalProps) {
@@ -36,7 +38,7 @@ export default function LeadAssignModal({
 
     const res = await fetch("/api/admin/assign", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-admin-key": secretKey },
       body: JSON.stringify({ leadId: lead.id, employeeId: selectedEmployee }),
     });
 

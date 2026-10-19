@@ -1,4 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
+import { cookies } from "next/headers";
+import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { NextResponse } from "next/server";
 import type { LeadStatus } from "@/lib/types";
 
@@ -32,11 +34,20 @@ function deriveStatus(fields: LeadUpdateBody): LeadStatus {
   return "New";
 }
 
-// PATCH /api/leads/[id] — updates pipeline fields and auto-derives status
+// PATCH /api/leads/[id] — updates pipeline fields and auto-derives status.
+// Requires an authenticated Supabase session (employee or admin).
 export async function PATCH(
   request: Request,
   { params }: { params: { id: string } }
 ) {
+  // Verify caller has a valid Supabase session
+  const cookieStore = cookies();
+  const authClient = createServerComponentClient({ cookies: () => cookieStore });
+  const { data: { session } } = await authClient.auth.getSession();
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!

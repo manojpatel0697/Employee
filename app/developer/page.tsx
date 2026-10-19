@@ -1,5 +1,4 @@
-import { cookies } from "next/headers";
-import { createServerClient } from "@/lib/supabase-server";
+import { createClient } from "@supabase/supabase-js";
 import type { ProjectPRD } from "@/lib/types";
 import PRDStatusCard from "@/components/developer/PRDStatusCard";
 import ClientEmailSearch from "@/components/developer/ClientEmailSearch";
@@ -18,12 +17,15 @@ export default async function DeveloperPage({
 }: DeveloperPageProps) {
   const clientEmail = searchParams.clientEmail?.trim() ?? "";
 
-  const cookieStore = cookies();
-  const supabase = createServerClient(cookieStore);
+  // Use the service-role client so unauthenticated visitors can read PRDs.
+  // The developers_read_prd RLS policy requires an authenticated session, so
+  // the anon client would return an empty result set for public visitors.
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
 
   // Fetch projects_prd with developer name via foreign key join.
-  // The anon key is intentionally used here — the developers_read_prd RLS
-  // policy allows SELECT for all (unauthenticated) users.
   let query = supabase
     .from("projects_prd")
     .select("*, profiles!assigned_developer_id(full_name)")
