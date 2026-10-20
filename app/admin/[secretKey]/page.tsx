@@ -5,6 +5,7 @@ import CSVImport from "@/components/admin/CSVImport";
 import LeadsTable from "@/components/admin/LeadsTable";
 import EmployeeStats from "@/components/admin/EmployeeStats";
 import PRDManager from "@/components/admin/PRDManager";
+import TheramifyLogo from "@/components/ui/TheramifyLogo";
 
 // ProjectPRD row augmented with the joined developer name
 type ProjectWithDeveloperName = ProjectPRD & { developer_name?: string };
@@ -61,7 +62,11 @@ export default async function AdminPage({ params }: AdminPageProps) {
     <div className="flex min-h-screen">
       {/* Sidebar */}
       <aside className="w-56 bg-gray-900 text-gray-100 flex flex-col py-6 px-4 gap-2 flex-shrink-0">
-        <h1 className="text-lg font-bold mb-6 px-2 text-white">Admin Panel</h1>
+        {/* Logo */}
+        <div className="flex flex-col items-center mb-6 gap-1">
+          <TheramifyLogo size={64} />
+          <span className="text-xs text-gray-400 tracking-widest uppercase mt-1">Admin Panel</span>
+        </div>
         <a
           href="#leads"
           className="rounded-lg px-3 py-2 text-sm hover:bg-gray-700 transition-colors"

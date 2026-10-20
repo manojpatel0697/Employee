@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { ProjectPRD } from "@/lib/types";
 import PRDStatusCard from "@/components/developer/PRDStatusCard";
 import ClientEmailSearch from "@/components/developer/ClientEmailSearch";
+import TheramifyLogo from "@/components/ui/TheramifyLogo";
 
 // Next.js 15: searchParams is now a Promise
 interface DeveloperPageProps {
@@ -58,14 +59,17 @@ export default async function DeveloperPage({
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-white border-b border-gray-200">
-        <div className="mx-auto max-w-7xl px-4 py-5">
-          <h1 className="text-2xl font-bold text-gray-900">
-            Developer &amp; PRD Status Portal
-          </h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Track project requirements, Lovable generation progress, and
-            deployment milestones.
-          </p>
+        <div className="mx-auto max-w-7xl px-4 py-5 flex items-center gap-4">
+          <TheramifyLogo size={48} />
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">
+              Developer &amp; PRD Status Portal
+            </h1>
+            <p className="mt-1 text-sm text-gray-500">
+              Track project requirements, Lovable generation progress, and
+              deployment milestones.
+            </p>
+          </div>
         </div>
       </header>
 

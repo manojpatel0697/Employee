@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createBrowserClient } from "@/lib/supabase";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
+import TheramifyLogo from "@/components/ui/TheramifyLogo";
 
 // Basic client-side email validation (server re-validates anyway)
 function isValidEmail(email: string): boolean {
@@ -115,6 +116,10 @@ export default function EmployeeLoginPage() {
   return (
     <main className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <Card className="w-full max-w-md p-8">
+        {/* Logo */}
+        <div className="flex justify-center mb-6">
+          <TheramifyLogo size={72} />
+        </div>
         <h1 className="text-2xl font-bold text-gray-900 mb-2">Employee Login</h1>
         <p className="text-sm text-gray-500 mb-6">
           Sign in to access your lead pipeline.

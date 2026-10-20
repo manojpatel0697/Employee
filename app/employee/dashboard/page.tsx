@@ -5,6 +5,7 @@ import LeadsList from "@/components/employee/LeadsList";
 import SignOutButton from "@/components/employee/SignOutButton";
 import { cookies } from "next/headers";
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
+import TheramifyLogo from "@/components/ui/TheramifyLogo";
 
 export default async function EmployeeDashboardPage() {
   // Next.js 15: pass cookies directly to auth-helpers
@@ -35,7 +36,10 @@ export default async function EmployeeDashboardPage() {
       {/* Top header bar */}
       <header className="bg-indigo-700 text-white">
         <div className="mx-auto max-w-7xl flex items-center justify-between px-4 py-3">
-          <h1 className="text-lg font-semibold">Employee Portal</h1>
+          <div className="flex items-center gap-3">
+            <TheramifyLogo size={36} />
+            <h1 className="text-lg font-semibold">Employee Portal</h1>
+          </div>
           <div className="flex items-center gap-4">
             {/* Show only the domain part of email for privacy */}
             <span className="text-sm opacity-80">
