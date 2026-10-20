@@ -6,6 +6,11 @@ import { createBrowserClient } from "@/lib/supabase";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 
+// Basic client-side email validation (server re-validates anyway)
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim());
+}
+
 export default function EmployeeLoginPage() {
   const router = useRouter();
 
@@ -15,43 +20,92 @@ export default function EmployeeLoginPage() {
   const [magicLinkSent, setMagicLinkSent] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  // Client-side validation before hitting the network
+  function validate(): string | null {
+    if (!email.trim()) return "Email address is required.";
+    if (!isValidEmail(email)) return "Enter a valid email address.";
+    if (!password) return "Password is required.";
+    if (password.length < 6) return "Password must be at least 6 characters.";
+    return null;
+  }
+
   async function handlePasswordLogin(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+
+    const validationError = validate();
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
     setLoading(true);
 
-    // Create client inside the handler so it's never called during SSR prerendering
+    // Route through the rate-limited server-side login endpoint
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
+      });
+
+      if (res.status === 429) {
+        setError("Too many login attempts. Please wait 15 minutes.");
+        setLoading(false);
+        return;
+      }
+
+      if (!res.ok) {
+        const body = (await res.json()) as { error?: string };
+        setError(body.error ?? "Sign-in failed. Check your credentials.");
+        setLoading(false);
+        return;
+      }
+
+      // Sign in on the client too so Supabase sets the auth cookie
+      const supabase = createBrowserClient();
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(),
+        password,
+      });
+
+      if (authError) {
+        setError("Invalid credentials.");
+        setLoading(false);
+        return;
+      }
+
+      router.push("/employee/dashboard");
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleMagicLink() {
+    if (!email.trim()) {
+      setError("Enter your email address first.");
+      return;
+    }
+    if (!isValidEmail(email)) {
+      setError("Enter a valid email address.");
+      return;
+    }
+
+    setError(null);
+    setLoading(true);
+
     const supabase = createBrowserClient();
-    const { error: authError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
+    const { error: authError } = await supabase.auth.signInWithOtp({
+      email: email.trim().toLowerCase(),
     });
 
     setLoading(false);
 
     if (authError) {
-      setError(authError.message);
-      return;
-    }
-
-    router.push("/employee/dashboard");
-  }
-
-  async function handleMagicLink() {
-    if (!email) {
-      setError("Enter your email address first.");
-      return;
-    }
-    setError(null);
-    setLoading(true);
-
-    const supabase = createBrowserClient();
-    const { error: authError } = await supabase.auth.signInWithOtp({ email });
-
-    setLoading(false);
-
-    if (authError) {
-      setError(authError.message);
+      // Generic message — don't reveal if the email exists
+      setError("Could not send magic link. Try again later.");
       return;
     }
 
@@ -71,7 +125,7 @@ export default function EmployeeLoginPage() {
             Magic link sent! Check your inbox and click the link to log in.
           </div>
         ) : (
-          <form onSubmit={handlePasswordLogin} className="space-y-4">
+          <form onSubmit={handlePasswordLogin} className="space-y-4" noValidate>
             <div>
               <label
                 htmlFor="email"
@@ -84,6 +138,7 @@ export default function EmployeeLoginPage() {
                 type="email"
                 autoComplete="email"
                 required
+                maxLength={254}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm
@@ -103,6 +158,7 @@ export default function EmployeeLoginPage() {
                 id="password"
                 type="password"
                 autoComplete="current-password"
+                maxLength={128}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm
@@ -112,7 +168,7 @@ export default function EmployeeLoginPage() {
             </div>
 
             {error && (
-              <p role="alert" className="text-sm text-red-600">
+              <p role="alert" aria-live="polite" className="text-sm text-red-600">
                 {error}
               </p>
             )}

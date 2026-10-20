@@ -1,13 +1,14 @@
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { createServerClient } from "@/lib/supabase-server";
+import { createClient } from "@supabase/supabase-js";
 import type { Lead } from "@/lib/types";
 import LeadsList from "@/components/employee/LeadsList";
 import SignOutButton from "@/components/employee/SignOutButton";
+import { cookies } from "next/headers";
+import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 
 export default async function EmployeeDashboardPage() {
-  const cookieStore = cookies();
-  const supabase = createServerClient(cookieStore);
+  // Next.js 15: pass cookies directly to auth-helpers
+  const supabase = createServerComponentClient({ cookies });
 
   const {
     data: { user },
@@ -25,7 +26,7 @@ export default async function EmployeeDashboardPage() {
     .order("updated_at", { ascending: false });
 
   if (leadsError) {
-    // Surface error without crashing
+    // Log server-side only — never expose DB errors to the client
     console.error("Failed to load leads:", leadsError.message);
   }
 
@@ -36,7 +37,10 @@ export default async function EmployeeDashboardPage() {
         <div className="mx-auto max-w-7xl flex items-center justify-between px-4 py-3">
           <h1 className="text-lg font-semibold">Employee Portal</h1>
           <div className="flex items-center gap-4">
-            <span className="text-sm opacity-80">{user.email}</span>
+            {/* Show only the domain part of email for privacy */}
+            <span className="text-sm opacity-80">
+              {user.email?.split("@")[0]}
+            </span>
             <SignOutButton />
           </div>
         </div>

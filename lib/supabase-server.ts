@@ -1,15 +1,14 @@
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
-import type { ReadonlyRequestCookies } from "next/dist/server/web/spec-extension/adapters/request-cookies";
+import { cookies } from "next/headers";
 import type { Database } from "./database.types";
 
 /**
  * Returns a Supabase client for use in Server Components.
- * Must be called with the cookies() store from next/headers.
+ * Compatible with Next.js 15 where cookies() returns a Promise.
  *
- * Example:
- *   import { cookies } from 'next/headers';
- *   const supabase = createServerClient(cookies());
+ * Usage (in a Server Component):
+ *   const supabase = createServerClient();
  */
-export function createServerClient(cookieStore: ReadonlyRequestCookies) {
-  return createServerComponentClient<Database>({ cookies: () => cookieStore });
+export function createServerClient() {
+  return createServerComponentClient<Database>({ cookies });
 }

@@ -9,13 +9,17 @@ import PRDManager from "@/components/admin/PRDManager";
 // ProjectPRD row augmented with the joined developer name
 type ProjectWithDeveloperName = ProjectPRD & { developer_name?: string };
 
+// Next.js 15: params is now a Promise
 interface AdminPageProps {
-  params: { secretKey: string };
+  params: Promise<{ secretKey: string }>;
 }
 
 export default async function AdminPage({ params }: AdminPageProps) {
+  // Await params — required in Next.js 15
+  const { secretKey } = await params;
+
   // Guard: redirect to /not-found if secret key doesn't match
-  if (params.secretKey !== process.env.ADMIN_SECRET_KEY) {
+  if (secretKey !== process.env.ADMIN_SECRET_KEY) {
     redirect("/not-found");
   }
 
@@ -53,27 +57,25 @@ export default async function AdminPage({ params }: AdminPageProps) {
     developer_name: profiles?.full_name ?? undefined,
   }));
 
-  const secretKey = params.secretKey;
-
   return (
     <div className="flex min-h-screen">
       {/* Sidebar */}
       <aside className="w-56 bg-gray-900 text-gray-100 flex flex-col py-6 px-4 gap-2 flex-shrink-0">
         <h1 className="text-lg font-bold mb-6 px-2 text-white">Admin Panel</h1>
         <a
-          href={`#leads`}
+          href="#leads"
           className="rounded-lg px-3 py-2 text-sm hover:bg-gray-700 transition-colors"
         >
           Leads
         </a>
         <a
-          href={`#analytics`}
+          href="#analytics"
           className="rounded-lg px-3 py-2 text-sm hover:bg-gray-700 transition-colors"
         >
           Analytics
         </a>
         <a
-          href={`#prds`}
+          href="#prds"
           className="rounded-lg px-3 py-2 text-sm hover:bg-gray-700 transition-colors"
         >
           PRDs

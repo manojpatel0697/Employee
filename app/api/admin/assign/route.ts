@@ -1,12 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
+import { sanitizeUuid } from "@/lib/sanitize";
 
 export const dynamic = "force-dynamic";
-
-interface AssignBody {
-  leadId: string;
-  employeeId: string;
-}
 
 /** Verifies that the request carries a valid admin secret key header. */
 function isAdminAuthorized(request: Request): boolean {
@@ -15,8 +12,23 @@ function isAdminAuthorized(request: Request): boolean {
   return request.headers.get("x-admin-key") === adminKey;
 }
 
-// POST /api/admin/assign — assigns a lead to an employee
+// POST /api/admin/assign — assigns a lead to an employee.
+// Rate limited: 60 assignments per minute per IP.
+// Requires x-admin-key header.
 export async function POST(request: Request) {
+  // Rate limit
+  const ip = getClientIp(request);
+  const rl = checkRateLimit(`admin:assign:${ip}`, 60, 60_000);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests" },
+      {
+        status: 429,
+        headers: { "Retry-After": String(Math.ceil((rl.resetAt - Date.now()) / 1000)) },
+      }
+    );
+  }
+
   if (!isAdminAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -26,17 +38,20 @@ export async function POST(request: Request) {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
-  let body: AssignBody;
+  let rawBody: Record<string, unknown>;
   try {
-    body = (await request.json()) as AssignBody;
+    rawBody = (await request.json()) as Record<string, unknown>;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { leadId, employeeId } = body;
+  // Sanitize — both must be valid UUIDs
+  const leadId = sanitizeUuid(rawBody.leadId);
+  const employeeId = sanitizeUuid(rawBody.employeeId);
+
   if (!leadId || !employeeId) {
     return NextResponse.json(
-      { error: "leadId and employeeId are required" },
+      { error: "leadId and employeeId are required and must be valid UUIDs" },
       { status: 400 }
     );
   }
@@ -52,7 +67,8 @@ export async function POST(request: Request) {
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("assign error:", error.message);
+    return NextResponse.json({ error: "Assignment failed" }, { status: 500 });
   }
 
   return NextResponse.json(data);

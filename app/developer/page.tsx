@@ -3,8 +3,9 @@ import type { ProjectPRD } from "@/lib/types";
 import PRDStatusCard from "@/components/developer/PRDStatusCard";
 import ClientEmailSearch from "@/components/developer/ClientEmailSearch";
 
+// Next.js 15: searchParams is now a Promise
 interface DeveloperPageProps {
-  searchParams: { clientEmail?: string };
+  searchParams: Promise<{ clientEmail?: string }>;
 }
 
 // Row returned from Supabase with the joined developer profile
@@ -15,7 +16,9 @@ type ProjectWithDeveloper = ProjectPRD & {
 export default async function DeveloperPage({
   searchParams,
 }: DeveloperPageProps) {
-  const clientEmail = searchParams.clientEmail?.trim() ?? "";
+  // Await searchParams — required in Next.js 15
+  const resolvedParams = await searchParams;
+  const clientEmail = resolvedParams.clientEmail?.trim() ?? "";
 
   // Use the service-role client for intentional public/semi-private access.
   // The developer portal is accessible without authentication (per spec: public/semi-private).
