@@ -5,10 +5,16 @@
  *
  * Two modes:
  * 1. REQUEST mode  — employee enters their email → Supabase sends a reset link
- * 2. UPDATE mode   — employee clicked the reset link in email → they set a new password
+ * 2. UPDATE mode   — employee arrived via the reset link in their email
  *
- * Supabase appends #access_token=... to the URL when the user clicks the link.
- * We detect that hash on mount and switch to UPDATE mode automatically.
+ * Supabase sends the user back to this URL with a hash fragment:
+ *   /employee/reset-password#access_token=...&type=recovery
+ *
+ * The Supabase JS client picks that up automatically and fires a
+ * PASSWORD_RECOVERY auth event. We listen for that event to switch
+ * into UPDATE mode reliably (the hash is consumed by the client before
+ * a useEffect can read it, which is why checking window.location.hash
+ * directly is unreliable).
  */
 
 import React, { useState, useEffect } from "react";
@@ -22,7 +28,7 @@ function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim());
 }
 
-type Mode = "request" | "update" | "done";
+type Mode = "request" | "update" | "done" | "error";
 
 export default function ResetPasswordPage() {
   const router = useRouter();
@@ -33,16 +39,29 @@ export default function ResetPasswordPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Detect Supabase password-reset hash in the URL on mount
   useEffect(() => {
+    const supabase = createBrowserClient();
+
+    // Listen for the PASSWORD_RECOVERY event — fired when Supabase
+    // processes the #access_token from the reset link in the email.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event) => {
+        if (event === "PASSWORD_RECOVERY") {
+          setMode("update");
+        }
+      }
+    );
+
+    // Also check the hash directly as a fallback (handles page reload edge case)
     const hash = window.location.hash;
-    if (hash.includes("type=recovery") || hash.includes("access_token")) {
-      // Supabase has already set the session from the hash — switch to update mode
+    if (hash.includes("type=recovery") || hash.includes("type=invite")) {
       setMode("update");
     }
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  // ── REQUEST: send reset email ────────────────────────────────────
+  // ── REQUEST: send reset email ─────────────────────────────────────
   async function handleRequest(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -58,7 +77,9 @@ export default function ResetPasswordPage() {
     const { error: resetError } = await supabase.auth.resetPasswordForEmail(
       email.trim().toLowerCase(),
       {
-        // After clicking the link the user lands back here to set their password
+        // Supabase will only honour redirect URLs that are whitelisted
+        // in your Supabase dashboard → Authentication → URL Configuration.
+        // Make sure http://localhost:3000/** is added there.
         redirectTo: `${window.location.origin}/employee/reset-password`,
       }
     );
@@ -66,14 +87,19 @@ export default function ResetPasswordPage() {
     setLoading(false);
 
     if (resetError) {
-      setError("Could not send reset email. Try again later.");
+      console.error("Reset error:", resetError.message);
+      setError(
+        resetError.message.includes("not allowed")
+          ? "This email is not registered. Check the address and try again."
+          : "Could not send reset email. Try again later."
+      );
       return;
     }
 
     setMode("done");
   }
 
-  // ── UPDATE: set new password ─────────────────────────────────────
+  // ── UPDATE: set new password ──────────────────────────────────────
   async function handleUpdate(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -95,11 +121,10 @@ export default function ResetPasswordPage() {
     setLoading(false);
 
     if (updateError) {
-      setError(updateError.message ?? "Failed to update password.");
+      setError(updateError.message ?? "Failed to update password. The link may have expired — request a new one.");
       return;
     }
 
-    // Password set — redirect to login
     router.push("/employee/login?passwordSet=1");
   }
 
@@ -118,8 +143,8 @@ export default function ResetPasswordPage() {
               Reset password
             </h1>
             <p className="text-sm text-gray-500 mb-6">
-              Enter your email and we&apos;ll send you a link to set a new
-              password.
+              Enter your work email and we&apos;ll send you a password reset
+              link.
             </p>
 
             <form onSubmit={handleRequest} className="space-y-4" noValidate>
@@ -140,7 +165,8 @@ export default function ResetPasswordPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@company.com"
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm
-                             focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                             focus:outline-none focus:ring-2 focus:ring-indigo-500
+                             focus:border-transparent"
                 />
               </div>
 
@@ -172,7 +198,7 @@ export default function ResetPasswordPage() {
           </>
         )}
 
-        {/* ── UPDATE mode (user clicked reset link in email) ── */}
+        {/* ── UPDATE mode (arrived via reset link) ── */}
         {mode === "update" && (
           <>
             <h1 className="text-2xl font-bold text-gray-900 mb-1">
@@ -200,7 +226,8 @@ export default function ResetPasswordPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Minimum 8 characters"
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm
-                             focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                             focus:outline-none focus:ring-2 focus:ring-indigo-500
+                             focus:border-transparent"
                 />
               </div>
 
@@ -221,18 +248,19 @@ export default function ResetPasswordPage() {
                   onChange={(e) => setConfirm(e.target.value)}
                   placeholder="Re-enter password"
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm
-                             focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                             focus:outline-none focus:ring-2 focus:ring-indigo-500
+                             focus:border-transparent"
                 />
               </div>
 
-              {/* Password strength indicator */}
+              {/* Password strength bar */}
               {password.length > 0 && (
                 <div className="space-y-1">
                   <div className="flex gap-1">
                     {[1, 2, 3, 4].map((level) => (
                       <div
                         key={level}
-                        className={`h-1 flex-1 rounded-full transition-colors ${
+                        className={`h-1.5 flex-1 rounded-full transition-colors ${
                           password.length >= level * 3
                             ? level <= 2
                               ? "bg-red-400"
@@ -275,7 +303,7 @@ export default function ResetPasswordPage() {
           </>
         )}
 
-        {/* ── DONE mode (reset email sent) ── */}
+        {/* ── DONE mode: email sent ── */}
         {mode === "done" && (
           <div className="text-center space-y-4">
             <div className="mx-auto w-14 h-14 rounded-full bg-green-100 flex items-center justify-center text-2xl">
@@ -285,17 +313,16 @@ export default function ResetPasswordPage() {
             <p className="text-sm text-gray-500">
               We sent a password reset link to{" "}
               <span className="font-medium text-gray-700">{email}</span>.
-              Click the link in the email to set your password.
+              Click the link in that email to set your password.
             </p>
             <p className="text-xs text-gray-400">
-              Didn&apos;t receive it? Check your spam folder or{" "}
+              Check your spam folder if you don&apos;t see it.{" "}
               <button
-                onClick={() => setMode("request")}
+                onClick={() => { setMode("request"); setError(null); }}
                 className="text-indigo-600 hover:underline"
               >
-                try again
+                Send again
               </button>
-              .
             </p>
           </div>
         )}
