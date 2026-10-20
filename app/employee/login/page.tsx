@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
-import { useRouter } from "next/navigation";
+import React, { useState, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createBrowserClient } from "@/lib/supabase";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
@@ -13,7 +13,17 @@ function isValidEmail(email: string): boolean {
 }
 
 export default function EmployeeLoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const passwordJustSet = searchParams.get("passwordSet") === "1";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -125,6 +135,12 @@ export default function EmployeeLoginPage() {
           Sign in to access your lead pipeline.
         </p>
 
+        {passwordJustSet && (
+          <div className="mb-4 rounded-lg bg-green-50 border border-green-200 p-3 text-sm text-green-800">
+            ✓ Password set successfully. Sign in below.
+          </div>
+        )}
+
         {magicLinkSent ? (
           <div className="rounded-lg bg-green-50 border border-green-200 p-4 text-sm text-green-800">
             Magic link sent! Check your inbox and click the link to log in.
@@ -153,12 +169,20 @@ export default function EmployeeLoginPage() {
             </div>
 
             <div>
-              <label
-                htmlFor="password"
-                className="block text-sm font-medium text-gray-700 mb-1"
-              >
-                Password
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label
+                  htmlFor="password"
+                  className="block text-sm font-medium text-gray-700"
+                >
+                  Password
+                </label>
+                <a
+                  href="/employee/reset-password"
+                  className="text-xs text-indigo-600 hover:underline"
+                >
+                  Forgot password?
+                </a>
+              </div>
               <input
                 id="password"
                 type="password"
