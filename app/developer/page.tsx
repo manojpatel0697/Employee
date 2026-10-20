@@ -1,7 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
+import { cookies } from "next/headers";
+import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
+import { redirect } from "next/navigation";
 import type { ProjectPRD } from "@/lib/types";
 import PRDStatusCard from "@/components/developer/PRDStatusCard";
 import ClientEmailSearch from "@/components/developer/ClientEmailSearch";
+import DeveloperSignOutButton from "@/components/developer/DeveloperSignOutButton";
 import TheramifyLogo from "@/components/ui/TheramifyLogo";
 
 // Next.js 15: searchParams is now a Promise
@@ -17,19 +21,26 @@ type ProjectWithDeveloper = ProjectPRD & {
 export default async function DeveloperPage({
   searchParams,
 }: DeveloperPageProps) {
+  // Verify session server-side (middleware also checks, this is defence-in-depth)
+  const supabaseAuth = createServerComponentClient({ cookies });
+  const {
+    data: { user },
+  } = await supabaseAuth.auth.getUser();
+
+  if (!user) {
+    redirect("/developer/login");
+  }
+
   // Await searchParams — required in Next.js 15
   const resolvedParams = await searchParams;
   const clientEmail = resolvedParams.clientEmail?.trim() ?? "";
 
-  // Use the service-role client for intentional public/semi-private access.
-  // The developer portal is accessible without authentication (per spec: public/semi-private).
-  // All reads are performed server-side with the service role; no anon RLS policy is needed.
+  // Fetch PRDs using service-role client (bypasses RLS for server-side read)
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
-  // Fetch projects_prd with developer name via foreign key join.
   let query = supabase
     .from("projects_prd")
     .select("*, profiles!assigned_developer_id(full_name)")
@@ -59,16 +70,27 @@ export default async function DeveloperPage({
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-white border-b border-gray-200">
-        <div className="mx-auto max-w-7xl px-4 py-5 flex items-center gap-4">
-          <TheramifyLogo size={48} />
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">
-              Developer &amp; PRD Status Portal
-            </h1>
-            <p className="mt-1 text-sm text-gray-500">
-              Track project requirements, Lovable generation progress, and
-              deployment milestones.
-            </p>
+        <div className="mx-auto max-w-7xl px-4 py-4 flex items-center justify-between gap-4">
+          {/* Brand + title */}
+          <div className="flex items-center gap-4">
+            <TheramifyLogo size={48} />
+            <div>
+              <h1 className="text-xl font-bold text-gray-900">
+                Developer &amp; PRD Status Portal
+              </h1>
+              <p className="text-xs text-gray-500">
+                Track project requirements, Lovable generation progress, and
+                deployment milestones.
+              </p>
+            </div>
+          </div>
+
+          {/* User info + sign out */}
+          <div className="flex items-center gap-3 flex-shrink-0">
+            <span className="hidden sm:block text-sm text-gray-500">
+              {user.email}
+            </span>
+            <DeveloperSignOutButton />
           </div>
         </div>
       </header>

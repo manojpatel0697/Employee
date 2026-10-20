@@ -7,9 +7,9 @@ export async function middleware(request: NextRequest) {
 
   // ------------------------------------------------------------------
   // Admin secret-key guard: /admin/<secretKey>/...
+  // Allows /admin/login through without a key check.
   // ------------------------------------------------------------------
-  if (pathname.startsWith("/admin/")) {
-    // Extract the segment immediately after /admin/
+  if (pathname.startsWith("/admin/") && !pathname.startsWith("/admin/login")) {
     const segments = pathname.split("/"); // ['', 'admin', '<key>', ...]
     const providedKey = segments[2] ?? "";
     const adminKey = process.env.ADMIN_SECRET_KEY ?? "";
@@ -36,9 +36,40 @@ export async function middleware(request: NextRequest) {
     return response;
   }
 
+  // ------------------------------------------------------------------
+  // Developer portal session guard: /developer (not /developer/login)
+  // Requires a Supabase session with role = 'developer'.
+  // ------------------------------------------------------------------
+  if (pathname === "/developer") {
+    const response = NextResponse.next();
+    const supabase = createMiddlewareClient({ req: request, res: response });
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session) {
+      return NextResponse.redirect(new URL("/developer/login", request.url));
+    }
+
+    // Verify the user has the developer role in the profiles table
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", session.user.id)
+      .single();
+
+    if (!profile || profile.role !== "developer") {
+      // Valid session but wrong role — sign them out and redirect
+      await supabase.auth.signOut();
+      return NextResponse.redirect(new URL("/developer/login", request.url));
+    }
+
+    return response;
+  }
+
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/employee/dashboard"],
+  matcher: ["/admin/:path*", "/employee/dashboard", "/developer"],
 };
