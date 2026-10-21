@@ -1,42 +1,61 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import Papa from "papaparse";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
-import { sanitizeText, sanitizeEmail, sanitizePhone } from "@/lib/sanitize";
+import { sanitizeText, sanitizePhone, sanitizeUuid } from "@/lib/sanitize";
 
 export const dynamic = "force-dynamic";
 
-// Max CSV file size: 5 MB
-const MAX_FILE_BYTES = 5 * 1024 * 1024;
-// Max rows per import
+// Max file size: 10 MB (XLSX files are larger than CSV)
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
+// Max rows per import batch
 const MAX_ROWS = 5_000;
 
-interface CsvRow {
+interface SheetRow {
+  sl_no?: string | number;
+  name?: string;
+  phone?: string | number;
+  category?: string;
+  search_category?: string;
+  area?: string;
+  address?: string;
+  map_link?: string;
+  // Also accept legacy CSV column names
   company_name?: string;
   contact_person?: string;
-  email?: string;
-  phone?: string;
   source?: string;
-  [key: string]: string | undefined;
+  [key: string]: unknown;
 }
 
-/** Verifies that the request carries a valid admin secret key header. */
 function isAdminAuthorized(request: Request): boolean {
   const adminKey = process.env.ADMIN_SECRET_KEY;
   if (!adminKey) return false;
   return request.headers.get("x-admin-key") === adminKey;
 }
 
-// POST /api/leads/import — accepts multipart/form-data with a 'file' field (CSV).
-// Rate limited: 10 imports per 5 minutes per IP (prevents bulk spam).
-// Requires x-admin-key header matching ADMIN_SECRET_KEY.
+/**
+ * Normalise a row from either XLSX or CSV to our standard shape.
+ * Column matching is case-insensitive and strips extra whitespace.
+ */
+function normaliseRow(rawRow: Record<string, unknown>): SheetRow {
+  const row: SheetRow = {};
+  for (const [key, val] of Object.entries(rawRow)) {
+    const k = key.trim().toLowerCase().replace(/\s+/g, "_");
+    row[k] = val;
+  }
+  return row;
+}
+
+// POST /api/leads/import
+// Accepts multipart/form-data with:
+//   file        — XLSX or CSV file
+//   assignTo    — (optional) employee UUID to bulk-assign all imported leads
+// Requires x-admin-key header.
 export async function POST(request: Request) {
-  // Rate limit: 10 CSV imports per 5 minutes per IP
   const ip = getClientIp(request);
   const rl = checkRateLimit(`leads:import:${ip}`, 10, 5 * 60_000);
   if (!rl.allowed) {
     return NextResponse.json(
-      { error: "Too many import requests. Please wait before trying again." },
+      { error: "Too many import requests. Please wait before retrying." },
       {
         status: 429,
         headers: { "Retry-After": String(Math.ceil((rl.resetAt - Date.now()) / 1000)) },
@@ -48,11 +67,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
-
   let formData: FormData;
   try {
     formData = await request.formData();
@@ -61,13 +75,15 @@ export async function POST(request: Request) {
   }
 
   const file = formData.get("file");
+  const assignToRaw = formData.get("assignTo");
+  const assignTo = assignToRaw ? sanitizeUuid(String(assignToRaw)) : null;
+
   if (!file || typeof file === "string") {
     return NextResponse.json({ error: "No file provided" }, { status: 400 });
   }
 
   const blob = file as File;
 
-  // File size guard
   if (blob.size > MAX_FILE_BYTES) {
     return NextResponse.json(
       { error: `File too large (max ${MAX_FILE_BYTES / 1024 / 1024} MB)` },
@@ -75,20 +91,54 @@ export async function POST(request: Request) {
     );
   }
 
-  // MIME type guard — only CSV
-  if (blob.type && !["text/csv", "text/plain", "application/csv", "application/vnd.ms-excel"].includes(blob.type)) {
-    return NextResponse.json({ error: "File must be a CSV" }, { status: 415 });
+  const fileName = blob.name?.toLowerCase() ?? "";
+  const isXlsx =
+    fileName.endsWith(".xlsx") ||
+    fileName.endsWith(".xls") ||
+    blob.type === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+    blob.type === "application/vnd.ms-excel";
+  const isCsv =
+    fileName.endsWith(".csv") ||
+    blob.type === "text/csv" ||
+    blob.type === "text/plain" ||
+    blob.type === "application/csv";
+
+  if (!isXlsx && !isCsv) {
+    return NextResponse.json(
+      { error: "File must be an Excel (.xlsx) or CSV file" },
+      { status: 415 }
+    );
   }
 
-  const csvText = await blob.text();
+  let rows: SheetRow[] = [];
 
-  const { data: rows, errors } = Papa.parse<CsvRow>(csvText, {
-    header: true,
-    skipEmptyLines: true,
-  });
-
-  if (errors.length > 0) {
-    return NextResponse.json({ error: "CSV parse error", details: errors.slice(0, 5) }, { status: 422 });
+  if (isXlsx) {
+    // Dynamic import — xlsx is a large library, only load when needed
+    const XLSX = await import("xlsx");
+    const buffer = await blob.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: "array" });
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
+      defval: "",
+      raw: false, // convert all values to strings
+    });
+    rows = rawRows.map(normaliseRow);
+  } else {
+    // CSV parsing
+    const Papa = (await import("papaparse")).default;
+    const csvText = await blob.text();
+    const { data, errors } = Papa.parse<Record<string, unknown>>(csvText, {
+      header: true,
+      skipEmptyLines: true,
+    });
+    if (errors.length > 0) {
+      return NextResponse.json(
+        { error: "CSV parse error", details: errors.slice(0, 5) },
+        { status: 422 }
+      );
+    }
+    rows = data.map(normaliseRow);
   }
 
   if (!rows.length) {
@@ -97,38 +147,79 @@ export async function POST(request: Request) {
 
   if (rows.length > MAX_ROWS) {
     return NextResponse.json(
-      { error: `Too many rows (max ${MAX_ROWS} per import)` },
+      { error: `Too many rows (max ${MAX_ROWS} per import). Split your file into smaller batches.` },
       { status: 400 }
     );
   }
 
-  // Sanitize every field before insertion
-  const inserts = rows.map((row) => ({
-    company_name: sanitizeText(row.company_name, 200),
-    contact_person: sanitizeText(row.contact_person, 200),
-    email: sanitizeEmail(row.email) || sanitizeText(row.email, 254),
-    phone: sanitizePhone(row.phone),
-    source: sanitizeText(row.source || "CSV Import", 100),
-    status: "New" as const,
-    service_interest: "Other" as const,
-    is_interested: null,
-    demo_website_sent: false,
-    demo_liked: null,
-    meeting_scheduled: false,
-    meeting_type: null,
-    meeting_date_time: null,
-    site_visit_requested: false,
-    notes: "",
-  }));
+  // Build sanitised insert objects
+  const inserts = rows.map((row) => {
+    // Resolve name — prefer 'name', fall back to 'contact_person' or 'company_name'
+    const resolvedName =
+      sanitizeText(row.name, 200) ||
+      sanitizeText(row.contact_person, 200) ||
+      sanitizeText(row.company_name, 200) ||
+      "";
 
-  const { error, count } = await supabase
-    .from("leads")
-    .insert(inserts, { count: "exact" });
+    return {
+      // New XLSX columns
+      sl_no: row.sl_no ? String(row.sl_no).trim().slice(0, 20) : null,
+      name: resolvedName,
+      phone: sanitizePhone(row.phone !== undefined ? String(row.phone) : ""),
+      category: sanitizeText(row.category, 200),
+      search_category: sanitizeText(row.search_category, 200),
+      area: sanitizeText(row.area, 200),
+      address: sanitizeText(row.address, 500),
+      map_link: sanitizeText(row.map_link, 500),
 
-  if (error) {
-    console.error("CSV import error:", error.message);
-    return NextResponse.json({ error: "Import failed" }, { status: 500 });
+      // Legacy / required columns
+      company_name: sanitizeText(row.company_name || resolvedName, 200),
+      contact_person: resolvedName,
+      email: "",
+      source: sanitizeText(row.source as string || "XLSX Import", 100),
+
+      // Assignment
+      assigned_to: assignTo ?? null,
+
+      // Pipeline defaults
+      status: "New" as const,
+      service_interest: "Other" as const,
+      picked_up: false,
+      call_status: null,
+      is_interested: null,
+      demo_website_sent: false,
+      demo_liked: null,
+      meeting_scheduled: false,
+      meeting_type: null,
+      meeting_date_time: null,
+      site_visit_requested: false,
+      notes: "",
+    };
+  });
+
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+
+  // Insert in batches of 500 to avoid payload limits
+  const BATCH = 500;
+  let totalInserted = 0;
+  for (let i = 0; i < inserts.length; i += BATCH) {
+    const batch = inserts.slice(i, i + BATCH);
+    const { error, count } = await supabase
+      .from("leads")
+      .insert(batch, { count: "exact" });
+
+    if (error) {
+      console.error("Import batch error:", error.message);
+      return NextResponse.json(
+        { error: "Import failed", details: error.message, inserted: totalInserted },
+        { status: 500 }
+      );
+    }
+    totalInserted += count ?? batch.length;
   }
 
-  return NextResponse.json({ inserted: count ?? inserts.length });
+  return NextResponse.json({ inserted: totalInserted });
 }

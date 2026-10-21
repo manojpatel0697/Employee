@@ -4,156 +4,93 @@ import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { NextResponse } from "next/server";
 import type { LeadStatus } from "@/lib/types";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
-import {
-  sanitizeText,
-  sanitizeEnum,
-  sanitizeEmail,
-  sanitizePhone,
-  sanitizeUuid,
-} from "@/lib/sanitize";
+import { sanitizeText, sanitizeEnum, sanitizeUuid } from "@/lib/sanitize";
 
 export const dynamic = "force-dynamic";
 
 const VALID_STATUSES = [
-  "New",
-  "Contacted",
-  "Demo Sent",
-  "Meeting Scheduled",
-  "Site Visit Requested",
-  "Converted",
-  "Dropped",
+  "New", "Picked Up", "Interested", "Demo Sent",
+  "Meeting Scheduled", "Site Visit Requested", "Converted", "Dropped",
 ] as const;
 
-const VALID_SERVICE_INTERESTS = ["Camera", "Web", "Both", "Other"] as const;
+const VALID_CALL_STATUSES = ["Answered", "Not Answered", "Busy", "Switched Off"] as const;
 const VALID_MEETING_TYPES = ["Google Meet", "Onsite"] as const;
 
-/**
- * Derives the lead status from boolean pipeline fields.
- * Only used when the caller does not supply an explicit status.
- */
-function deriveStatus(fields: Record<string, unknown>): LeadStatus {
-  if (fields.site_visit_requested) return "Site Visit Requested";
-  if (fields.meeting_scheduled) return "Meeting Scheduled";
-  if (fields.demo_website_sent) return "Demo Sent";
-  if (fields.is_interested === false) return "Dropped";
-  if (fields.is_interested === true) return "Contacted";
-  return "New";
-}
-
-// PATCH /api/leads/[id] — updates pipeline fields for a lead.
-// Rate limited: 30 req / minute per user session.
-// Requires an authenticated Supabase session (employee or admin).
+// PATCH /api/leads/[id]
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  // Rate limit: 30 updates per minute per IP
   const ip = getClientIp(request);
   const rl = checkRateLimit(`leads:patch:${ip}`, 30, 60_000);
   if (!rl.allowed) {
     return NextResponse.json(
       { error: "Too many requests" },
-      {
-        status: 429,
-        headers: { "Retry-After": String(Math.ceil((rl.resetAt - Date.now()) / 1000)) },
-      }
+      { status: 429, headers: { "Retry-After": String(Math.ceil((rl.resetAt - Date.now()) / 1000)) } }
     );
   }
 
-  // Await params — required in Next.js 15
   const { id: rawId } = await params;
-
-  // Validate lead ID
   const leadId = sanitizeUuid(rawId);
-  if (!leadId) {
-    return NextResponse.json({ error: "Invalid lead ID" }, { status: 400 });
-  }
+  if (!leadId) return NextResponse.json({ error: "Invalid lead ID" }, { status: 400 });
 
-  // Verify caller has a valid Supabase session (Next.js 15: pass cookies directly)
+  // Auth check
   const authClient = createServerComponentClient({ cookies });
-  const {
-    data: { session },
-  } = await authClient.auth.getSession();
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const { data: { session } } = await authClient.auth.getSession();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
-  let rawBody: Record<string, unknown>;
+  let raw: Record<string, unknown>;
   try {
-    rawBody = (await request.json()) as Record<string, unknown>;
+    raw = (await request.json()) as Record<string, unknown>;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  // ── Sanitize and validate every field ──────────────────────────
-  const service_interest = sanitizeEnum(rawBody.service_interest, VALID_SERVICE_INTERESTS);
-  const meeting_type =
-    rawBody.meeting_type === null || rawBody.meeting_type === undefined
-      ? null
-      : sanitizeEnum(rawBody.meeting_type, VALID_MEETING_TYPES);
+  const toBool = (v: unknown): boolean | null => typeof v === "boolean" ? v : null;
 
-  // Booleans
-  const toBool = (v: unknown): boolean | null => {
-    if (v === null || v === undefined) return null;
-    if (typeof v === "boolean") return v;
-    return null;
+  // Sanitise all writable fields
+  const update: Record<string, unknown> = {
+    // Pipeline booleans
+    picked_up: typeof raw.picked_up === "boolean" ? raw.picked_up : undefined,
+    call_status: raw.call_status !== undefined
+      ? sanitizeEnum(raw.call_status, VALID_CALL_STATUSES)
+      : undefined,
+    is_interested: raw.is_interested !== undefined ? toBool(raw.is_interested) : undefined,
+    demo_website_sent: typeof raw.demo_website_sent === "boolean" ? raw.demo_website_sent : undefined,
+    demo_liked: raw.demo_liked !== undefined ? toBool(raw.demo_liked) : undefined,
+    meeting_scheduled: typeof raw.meeting_scheduled === "boolean" ? raw.meeting_scheduled : undefined,
+    meeting_type: raw.meeting_type !== undefined
+      ? (raw.meeting_type === null ? null : sanitizeEnum(raw.meeting_type, VALID_MEETING_TYPES))
+      : undefined,
+    meeting_date_time: (() => {
+      if (raw.meeting_date_time === null || raw.meeting_date_time === undefined) return raw.meeting_date_time;
+      const d = new Date(String(raw.meeting_date_time));
+      return isNaN(d.getTime()) ? null : d.toISOString();
+    })(),
+    site_visit_requested: typeof raw.site_visit_requested === "boolean" ? raw.site_visit_requested : undefined,
+    notes: raw.notes !== undefined ? sanitizeText(raw.notes, 5_000) : undefined,
+    status: raw.status !== undefined ? sanitizeEnum(raw.status, VALID_STATUSES) : undefined,
+    updated_at: new Date().toISOString(),
   };
 
-  const is_interested = toBool(rawBody.is_interested);
-  const demo_website_sent = typeof rawBody.demo_website_sent === "boolean" ? rawBody.demo_website_sent : false;
-  const demo_liked = toBool(rawBody.demo_liked);
-  const meeting_scheduled = typeof rawBody.meeting_scheduled === "boolean" ? rawBody.meeting_scheduled : false;
-  const site_visit_requested = typeof rawBody.site_visit_requested === "boolean" ? rawBody.site_visit_requested : false;
-
-  // Datetime — validate ISO 8601 format
-  const meeting_date_time_raw = rawBody.meeting_date_time;
-  let meeting_date_time: string | null = null;
-  if (typeof meeting_date_time_raw === "string" && meeting_date_time_raw.trim()) {
-    const dt = new Date(meeting_date_time_raw);
-    meeting_date_time = isNaN(dt.getTime()) ? null : dt.toISOString();
-  }
-
-  // Notes — strip HTML
-  const notes = sanitizeText(rawBody.notes, 5_000);
-
-  // Explicit status — validate or derive
-  const explicitStatus = sanitizeEnum(rawBody.status, VALID_STATUSES);
-
-  const pipelineFields = {
-    service_interest,
-    is_interested,
-    demo_website_sent,
-    demo_liked,
-    meeting_scheduled,
-    meeting_type: meeting_scheduled ? meeting_type : null,
-    meeting_date_time: meeting_scheduled ? meeting_date_time : null,
-    site_visit_requested,
-    notes,
-  };
-
-  const status: LeadStatus =
-    explicitStatus ??
-    deriveStatus({
-      site_visit_requested,
-      meeting_scheduled,
-      demo_website_sent,
-      is_interested,
-    });
+  // Remove undefined fields
+  const payload = Object.fromEntries(
+    Object.entries(update).filter(([, v]) => v !== undefined)
+  );
 
   const { data, error } = await supabase
     .from("leads")
-    .update({ ...pipelineFields, status, updated_at: new Date().toISOString() })
+    .update(payload)
     .eq("id", leadId)
     .select()
     .single();
 
   if (error) {
-    // Never expose raw DB error messages to clients
     console.error("leads PATCH error:", error.message);
     return NextResponse.json({ error: "Failed to update lead" }, { status: 500 });
   }

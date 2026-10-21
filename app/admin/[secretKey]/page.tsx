@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import type { Lead, Profile, ProjectPRD } from "@/lib/types";
-import CSVImport from "@/components/admin/CSVImport";
+import XLSXImport from "@/components/admin/XLSXImport";
 import LeadsTable from "@/components/admin/LeadsTable";
 import EmployeeStats from "@/components/admin/EmployeeStats";
 import PRDManager from "@/components/admin/PRDManager";
@@ -95,7 +95,10 @@ export default async function AdminPage({ params }: AdminPageProps) {
           <section id="leads">
             <h2 className="text-xl font-bold text-gray-900 mb-4">Lead Pipeline</h2>
             <div className="mb-6">
-              <CSVImport secretKey={secretKey} />
+              <XLSXImport
+                employees={(employees as Profile[]) ?? []}
+                secretKey={secretKey}
+              />
             </div>
             <LeadsTable
               leads={(leads as Lead[]) ?? []}
