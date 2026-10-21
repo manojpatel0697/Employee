@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import type { Lead, Profile, LeadStatus } from "@/lib/types";
 import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
@@ -16,6 +16,36 @@ const STATUS_OPTIONS: LeadStatus[] = [
   "Meeting Scheduled", "Converted", "Dropped",
 ];
 
+type SortKey = "sl_no" | "name" | "phone" | "category" | "search_category" | "area" | "status" | "assigned_to";
+type SortDir = "asc" | "desc";
+
+// ── Sort icon ──────────────────────────────────────────────────────
+function SortIcon({ col, sortKey, sortDir }: { col: SortKey; sortKey: SortKey; sortDir: SortDir }) {
+  if (sortKey !== col) return <span className="ml-1 text-gray-300">↕</span>;
+  return <span className="ml-1 text-indigo-500">{sortDir === "asc" ? "↑" : "↓"}</span>;
+}
+
+// ── Sortable header ────────────────────────────────────────────────
+function SortTh({
+  col, label, sortKey, sortDir, onSort,
+}: {
+  col: SortKey; label: string;
+  sortKey: SortKey; sortDir: SortDir;
+  onSort: (k: SortKey) => void;
+}) {
+  return (
+    <th
+      scope="col"
+      onClick={() => onSort(col)}
+      className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider
+                 whitespace-nowrap cursor-pointer select-none hover:text-indigo-600 hover:bg-gray-100 transition-colors"
+    >
+      {label}
+      <SortIcon col={col} sortKey={sortKey} sortDir={sortDir} />
+    </th>
+  );
+}
+
 export default function LeadsTable({ leads: initialLeads, employees, secretKey }: LeadsTableProps) {
   const [leads, setLeads] = useState<Lead[]>(initialLeads);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -28,8 +58,21 @@ export default function LeadsTable({ leads: initialLeads, employees, secretKey }
   const [filterEmployee, setFilterEmployee] = useState<string>("all");
   const [search, setSearch] = useState("");
 
+  // Sorting
+  const [sortKey, setSortKey] = useState<SortKey>("sl_no");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  function handleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  }
+
   const filtered = useMemo(() => {
-    return leads.filter((l) => {
+    let rows = leads.filter((l) => {
       if (filterStatus !== "all" && l.status !== filterStatus) return false;
       if (filterEmployee !== "all" && l.assigned_to !== filterEmployee) return false;
       if (search) {
@@ -39,14 +82,42 @@ export default function LeadsTable({ leads: initialLeads, employees, secretKey }
           l.company_name?.toLowerCase().includes(q) ||
           l.phone?.toLowerCase().includes(q) ||
           l.category?.toLowerCase().includes(q) ||
-          l.area?.toLowerCase().includes(q)
+          l.search_category?.toLowerCase().includes(q) ||
+          l.area?.toLowerCase().includes(q) ||
+          l.address?.toLowerCase().includes(q)
         );
       }
       return true;
     });
-  }, [leads, filterStatus, filterEmployee, search]);
 
-  // ── Selection helpers ──────────────────────────────────────────
+    // Sort
+    rows = [...rows].sort((a, b) => {
+      let av: string;
+      let bv: string;
+
+      if (sortKey === "sl_no") {
+        // Numeric sort for sl_no
+        const an = parseInt(a.sl_no ?? "0", 10) || 0;
+        const bn = parseInt(b.sl_no ?? "0", 10) || 0;
+        return sortDir === "asc" ? an - bn : bn - an;
+      }
+
+      if (sortKey === "assigned_to") {
+        av = employees.find((e) => e.id === a.assigned_to)?.full_name ?? "";
+        bv = employees.find((e) => e.id === b.assigned_to)?.full_name ?? "";
+      } else {
+        av = String(a[sortKey] ?? "").toLowerCase();
+        bv = String(b[sortKey] ?? "").toLowerCase();
+      }
+
+      const cmp = av.localeCompare(bv, undefined, { sensitivity: "base" });
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+
+    return rows;
+  }, [leads, filterStatus, filterEmployee, search, sortKey, sortDir, employees]);
+
+  // ── Selection ──────────────────────────────────────────────────
   function toggleOne(id: string) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -64,90 +135,86 @@ export default function LeadsTable({ leads: initialLeads, employees, secretKey }
   }
 
   // ── Bulk assign ────────────────────────────────────────────────
-  async function handleBulkAssign() {
-    if (!bulkEmployee) {
-      setBulkMsg({ type: "error", text: "Select an employee first." });
-      return;
-    }
-    if (selected.size === 0) {
-      setBulkMsg({ type: "error", text: "Select at least one lead." });
-      return;
-    }
-
+  const doAssign = useCallback(async (leadIds: string[], employeeId: string) => {
     setBulkLoading(true);
     setBulkMsg(null);
-
     try {
       const res = await fetch("/api/admin/bulk-assign", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-admin-key": secretKey },
-        body: JSON.stringify({ leadIds: Array.from(selected), employeeId: bulkEmployee }),
+        body: JSON.stringify({ leadIds, employeeId }),
       });
-
       const body = (await res.json()) as { assigned?: number; error?: string };
-
       if (!res.ok) {
         setBulkMsg({ type: "error", text: body.error ?? "Bulk assign failed" });
-        return;
+        return false;
       }
-
-      // Update local state
       setLeads((prev) =>
-        prev.map((l) =>
-          selected.has(l.id) ? { ...l, assigned_to: bulkEmployee } : l
-        )
+        prev.map((l) => leadIds.includes(l.id) ? { ...l, assigned_to: employeeId } : l)
       );
-      setSelected(new Set());
-      setBulkMsg({
-        type: "success",
-        text: `✓ ${(body.assigned ?? selected.size).toLocaleString()} leads assigned to ${employees.find((e) => e.id === bulkEmployee)?.full_name ?? "employee"}`,
-      });
+      return true;
     } catch {
       setBulkMsg({ type: "error", text: "Network error. Try again." });
+      return false;
     } finally {
       setBulkLoading(false);
     }
+  }, [secretKey]);
+
+  async function handleBulkAssign() {
+    if (!bulkEmployee) { setBulkMsg({ type: "error", text: "Select an employee first." }); return; }
+    if (selected.size === 0) { setBulkMsg({ type: "error", text: "Select at least one lead." }); return; }
+    const ok = await doAssign(Array.from(selected), bulkEmployee);
+    if (ok) {
+      const name = employees.find((e) => e.id === bulkEmployee)?.full_name ?? "employee";
+      setBulkMsg({ type: "success", text: `✓ ${selected.size.toLocaleString()} leads assigned to ${name}` });
+      setSelected(new Set());
+    }
   }
 
-  function getEmployeeName(id: string | null): string {
+  function getEmployeeName(id: string | null) {
     if (!id) return "—";
     return employees.find((e) => e.id === id)?.full_name ?? "—";
   }
 
   const allOnPageSelected = filtered.length > 0 && selected.size === filtered.length;
 
+  const sortProps = { sortKey, sortDir, onSort: handleSort };
+
   return (
     <div className="space-y-4">
-      {/* ── Filters ── */}
+
+      {/* ── Filters row ── */}
       <div className="flex flex-wrap gap-3 items-center">
-        <input
-          type="text"
-          placeholder="Search name, phone, category, area…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
+        <input type="text" placeholder="Search name, phone, category, area…"
+          value={search} onChange={(e) => setSearch(e.target.value)}
           className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm w-64
-                     focus:outline-none focus:ring-2 focus:ring-indigo-500"
-        />
-        <select
-          value={filterStatus}
-          onChange={(e) => setFilterStatus(e.target.value)}
+                     focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}
           className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm
-                     focus:outline-none focus:ring-2 focus:ring-indigo-500"
-        >
+                     focus:outline-none focus:ring-2 focus:ring-indigo-500">
           <option value="all">All statuses</option>
           {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
-        <select
-          value={filterEmployee}
-          onChange={(e) => setFilterEmployee(e.target.value)}
+        <select value={filterEmployee} onChange={(e) => setFilterEmployee(e.target.value)}
           className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm
-                     focus:outline-none focus:ring-2 focus:ring-indigo-500"
-        >
+                     focus:outline-none focus:ring-2 focus:ring-indigo-500">
           <option value="all">All employees</option>
           <option value="">Unassigned</option>
           {employees.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
         </select>
-        <span className="text-xs text-gray-500">{filtered.length.toLocaleString()} leads</span>
+        <span className="text-xs text-gray-500">
+          {filtered.length.toLocaleString()} lead{filtered.length !== 1 ? "s" : ""}
+          {selected.size > 0 && (
+            <span className="ml-2 text-indigo-600 font-medium">
+              · {selected.size.toLocaleString()} selected
+            </span>
+          )}
+        </span>
+        {/* Sort indicator */}
+        <span className="text-xs text-gray-400">
+          Sorted by <span className="text-gray-600 font-medium">{sortKey.replace("_", " ")}</span> {sortDir === "asc" ? "↑" : "↓"}
+        </span>
       </div>
 
       {/* ── Bulk assign bar ── */}
@@ -156,26 +223,16 @@ export default function LeadsTable({ leads: initialLeads, employees, secretKey }
           <span className="text-sm font-medium text-indigo-800">
             {selected.size.toLocaleString()} lead{selected.size !== 1 ? "s" : ""} selected
           </span>
-          <select
-            value={bulkEmployee}
-            onChange={(e) => setBulkEmployee(e.target.value)}
+          <select value={bulkEmployee} onChange={(e) => setBulkEmployee(e.target.value)}
             className="rounded-lg border border-indigo-300 bg-white px-3 py-1.5 text-sm
-                       focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          >
+                       focus:outline-none focus:ring-2 focus:ring-indigo-500">
             <option value="">— Assign to employee —</option>
             {employees.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
           </select>
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={handleBulkAssign}
-            disabled={bulkLoading || !bulkEmployee}
-          >
+          <Button variant="primary" size="sm" onClick={handleBulkAssign} disabled={bulkLoading || !bulkEmployee}>
             {bulkLoading ? "Assigning…" : `Assign ${selected.size.toLocaleString()} leads`}
           </Button>
-          <Button variant="secondary" size="sm" onClick={() => setSelected(new Set())}>
-            Clear
-          </Button>
+          <Button variant="secondary" size="sm" onClick={() => setSelected(new Set())}>Clear</Button>
           {bulkMsg && (
             <span className={`text-sm ${bulkMsg.type === "success" ? "text-green-700" : "text-red-600"}`}>
               {bulkMsg.text}
@@ -184,36 +241,44 @@ export default function LeadsTable({ leads: initialLeads, employees, secretKey }
         </div>
       )}
 
+      {/* ── Drag-and-drop assign panel ── */}
+      <DragAssignPanel
+        leads={filtered}
+        employees={employees}
+        onAssign={async (ids, empId) => {
+          const ok = await doAssign(ids, empId);
+          if (ok) {
+            const name = employees.find((e) => e.id === empId)?.full_name ?? "employee";
+            setBulkMsg({ type: "success", text: `✓ ${ids.length.toLocaleString()} leads assigned to ${name}` });
+          }
+        }}
+      />
+
       {/* ── Mobile cards ── */}
       <div className="md:hidden space-y-3">
         {filtered.length === 0 ? (
           <p className="text-center text-gray-400 py-8">No leads found.</p>
         ) : (
           filtered.map((lead) => (
-            <div key={lead.id} className="rounded-2xl bg-white shadow-sm ring-1 ring-gray-200 p-4 space-y-2">
+            <div key={lead.id} className={`rounded-2xl bg-white shadow-sm ring-1 ring-gray-200 p-4 space-y-2 ${selected.has(lead.id) ? "ring-indigo-400 bg-indigo-50" : ""}`}>
               <div className="flex items-start gap-2">
-                <input
-                  type="checkbox"
-                  checked={selected.has(lead.id)}
+                <input type="checkbox" checked={selected.has(lead.id)}
                   onChange={() => toggleOne(lead.id)}
                   className="mt-1 rounded text-indigo-600"
-                  aria-label={`Select ${lead.name || lead.company_name}`}
-                />
+                  aria-label={`Select ${lead.name || lead.company_name}`} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-medium text-gray-900 truncate">{lead.name || lead.company_name}</span>
                     <Badge status={lead.status} />
                   </div>
-                  <div className="text-sm text-gray-500">{lead.phone}</div>
-                  <div className="text-xs text-gray-400">{lead.category} · {lead.area}</div>
-                  <div className="text-xs text-gray-400">Assigned: {getEmployeeName(lead.assigned_to)}</div>
+                  <p className="text-sm text-gray-500">{lead.phone}</p>
+                  <p className="text-xs text-gray-400">{lead.category} · {lead.area}</p>
+                  <p className="text-xs text-gray-400">Assigned: {getEmployeeName(lead.assigned_to)}</p>
                 </div>
               </div>
               {lead.map_link && (
                 <a href={lead.map_link} target="_blank" rel="noopener noreferrer"
-                   className="text-xs text-indigo-600 hover:underline">
-                  View on Maps
-                </a>
+                   className="text-xs text-indigo-600 hover:underline">View on Maps ↗</a>
               )}
             </div>
           ))
@@ -226,64 +291,291 @@ export default function LeadsTable({ leads: initialLeads, employees, secretKey }
           <thead className="bg-gray-50">
             <tr>
               <th className="px-4 py-3 w-10">
-                <input
-                  type="checkbox"
-                  checked={allOnPageSelected}
-                  onChange={toggleAll}
-                  className="rounded text-indigo-600"
-                  aria-label="Select all"
-                />
+                <input type="checkbox" checked={allOnPageSelected} onChange={toggleAll}
+                  className="rounded text-indigo-600" aria-label="Select all" />
               </th>
-              {["Sl No", "Name", "Phone", "Category", "Area", "Address", "Map", "Status", "Assigned To"].map((col) => (
-                <th key={col} scope="col"
-                    className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">
-                  {col}
-                </th>
-              ))}
+              <SortTh col="sl_no"          label="Sl No"           {...sortProps} />
+              <SortTh col="name"           label="Name"            {...sortProps} />
+              <SortTh col="phone"          label="Phone"           {...sortProps} />
+              <SortTh col="category"       label="Category"        {...sortProps} />
+              <SortTh col="search_category" label="Search Category" {...sortProps} />
+              <SortTh col="area"           label="Area"            {...sortProps} />
+              <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                Address
+              </th>
+              <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                Map
+              </th>
+              <SortTh col="status"      label="Status"      {...sortProps} />
+              <SortTh col="assigned_to" label="Assigned To" {...sortProps} />
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 bg-white">
             {filtered.map((lead) => (
               <tr key={lead.id}
-                  className={`hover:bg-gray-50 transition-colors ${selected.has(lead.id) ? "bg-indigo-50" : ""}`}>
+                  className={`transition-colors ${selected.has(lead.id) ? "bg-indigo-50" : "hover:bg-gray-50"}`}>
                 <td className="px-4 py-3">
-                  <input
-                    type="checkbox"
-                    checked={selected.has(lead.id)}
-                    onChange={() => toggleOne(lead.id)}
+                  <input type="checkbox" checked={selected.has(lead.id)} onChange={() => toggleOne(lead.id)}
                     className="rounded text-indigo-600"
-                    aria-label={`Select ${lead.name || lead.company_name}`}
-                  />
+                    aria-label={`Select ${lead.name || lead.company_name}`} />
                 </td>
-                <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{lead.sl_no ?? "—"}</td>
-                <td className="px-4 py-3 font-medium text-gray-900 whitespace-nowrap max-w-[180px] truncate">
+                <td className="px-4 py-3 text-gray-400 whitespace-nowrap text-xs">{lead.sl_no ?? "—"}</td>
+                <td className="px-4 py-3 font-medium text-gray-900 whitespace-nowrap max-w-[160px] truncate">
                   {lead.name || lead.company_name}
                 </td>
                 <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{lead.phone}</td>
-                <td className="px-4 py-3 text-gray-600 whitespace-nowrap max-w-[140px] truncate">{lead.category}</td>
-                <td className="px-4 py-3 text-gray-500 whitespace-nowrap max-w-[120px] truncate">{lead.area}</td>
-                <td className="px-4 py-3 text-gray-500 max-w-[200px] truncate" title={lead.address}>{lead.address}</td>
+                <td className="px-4 py-3 text-gray-600 whitespace-nowrap max-w-[130px] truncate">{lead.category}</td>
+                <td className="px-4 py-3 text-gray-500 whitespace-nowrap max-w-[130px] truncate">{lead.search_category}</td>
+                <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{lead.area}</td>
+                <td className="px-4 py-3 text-gray-400 max-w-[180px] truncate text-xs" title={lead.address}>
+                  {lead.address}
+                </td>
                 <td className="px-4 py-3 whitespace-nowrap">
                   {lead.map_link ? (
                     <a href={lead.map_link} target="_blank" rel="noopener noreferrer"
                        className="text-indigo-600 hover:underline text-xs">Maps ↗</a>
                   ) : "—"}
                 </td>
-                <td className="px-4 py-3 whitespace-nowrap">
-                  <Badge status={lead.status} />
+                <td className="px-4 py-3 whitespace-nowrap"><Badge status={lead.status} /></td>
+                <td className="px-4 py-3 text-gray-600 whitespace-nowrap text-xs">
+                  {getEmployeeName(lead.assigned_to)}
                 </td>
-                <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{getEmployeeName(lead.assigned_to)}</td>
               </tr>
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={10} className="px-4 py-8 text-center text-gray-400">
-                  No leads found.
-                </td>
+                <td colSpan={11} className="px-4 py-8 text-center text-gray-400">No leads found.</td>
               </tr>
             )}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════
+// DRAG-AND-DROP ASSIGN PANEL
+// ══════════════════════════════════════════════════════════════════
+
+interface DragAssignPanelProps {
+  leads: Lead[];
+  employees: Profile[];
+  onAssign: (leadIds: string[], employeeId: string) => Promise<void>;
+}
+
+function DragAssignPanel({ leads, employees, onAssign }: DragAssignPanelProps) {
+  const [open, setOpen] = useState(false);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverEmp, setDragOverEmp] = useState<string | null>(null);
+  // Custom number: how many unassigned leads to assign to each employee
+  const [counts, setCounts] = useState<Record<string, string>>({});
+  const [assigning, setAssigning] = useState<Record<string, boolean>>({});
+  const [msgs, setMsgs] = useState<Record<string, { type: "success" | "error"; text: string }>>({});
+
+  const unassigned = useMemo(
+    () => leads.filter((l) => !l.assigned_to),
+    [leads]
+  );
+
+  // ── Drag handlers ──────────────────────────────────────────────
+  function onDragStart(e: React.DragEvent, leadId: string) {
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("leadId", leadId);
+    setDraggingId(leadId);
+  }
+
+  function onDragEnd() {
+    setDraggingId(null);
+    setDragOverEmp(null);
+  }
+
+  function onDragOver(e: React.DragEvent, empId: string) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDragOverEmp(empId);
+  }
+
+  async function onDrop(e: React.DragEvent, empId: string) {
+    e.preventDefault();
+    setDragOverEmp(null);
+    const leadId = e.dataTransfer.getData("leadId");
+    if (!leadId) return;
+    setDraggingId(null);
+    await onAssign([leadId], empId);
+  }
+
+  // ── Quick-assign N leads ───────────────────────────────────────
+  async function handleQuickAssign(empId: string) {
+    const n = parseInt(counts[empId] ?? "0", 10);
+    if (!n || n <= 0) {
+      setMsgs((m) => ({ ...m, [empId]: { type: "error", text: "Enter a number > 0" } }));
+      return;
+    }
+    if (unassigned.length === 0) {
+      setMsgs((m) => ({ ...m, [empId]: { type: "error", text: "No unassigned leads left" } }));
+      return;
+    }
+    const toAssign = unassigned.slice(0, n).map((l) => l.id);
+    setAssigning((a) => ({ ...a, [empId]: true }));
+    setMsgs((m) => ({ ...m, [empId]: undefined as unknown as { type: "success" | "error"; text: string } }));
+    await onAssign(toAssign, empId);
+    setAssigning((a) => ({ ...a, [empId]: false }));
+    setCounts((c) => ({ ...c, [empId]: "" }));
+    setMsgs((m) => ({
+      ...m,
+      [empId]: { type: "success", text: `✓ ${toAssign.length} leads assigned` },
+    }));
+  }
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="w-full rounded-xl border-2 border-dashed border-indigo-200 bg-indigo-50
+                   hover:bg-indigo-100 hover:border-indigo-400 transition-colors
+                   py-3 px-4 text-sm text-indigo-600 font-medium flex items-center justify-center gap-2"
+      >
+        <span className="text-lg">🎯</span>
+        Open Drag &amp; Drop Assign Panel
+        <span className="text-xs text-indigo-400 ml-1">
+          ({unassigned.length.toLocaleString()} unassigned leads)
+        </span>
+      </button>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-indigo-200 bg-white shadow-sm overflow-hidden">
+      {/* Panel header */}
+      <div className="flex items-center justify-between bg-indigo-600 px-5 py-3">
+        <div className="flex items-center gap-3">
+          <span className="text-white font-semibold text-sm">🎯 Drag &amp; Drop Assign Panel</span>
+          <span className="rounded-full bg-indigo-500 text-white text-xs px-2 py-0.5">
+            {unassigned.length.toLocaleString()} unassigned
+          </span>
+        </div>
+        <button onClick={() => setOpen(false)}
+          className="text-indigo-200 hover:text-white text-xs underline">
+          Close panel
+        </button>
+      </div>
+
+      <div className="flex gap-0 overflow-x-auto">
+
+        {/* ── Left: Unassigned leads pool ── */}
+        <div className="w-56 flex-shrink-0 border-r border-gray-200 bg-gray-50">
+          <div className="px-3 py-2 border-b border-gray-200 bg-gray-100">
+            <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider">
+              Unassigned ({unassigned.length.toLocaleString()})
+            </p>
+            <p className="text-xs text-gray-400 mt-0.5">Drag leads to an employee</p>
+          </div>
+          <div className="overflow-y-auto max-h-72 p-2 space-y-1">
+            {unassigned.length === 0 ? (
+              <p className="text-xs text-gray-400 text-center py-4">All leads assigned ✓</p>
+            ) : (
+              unassigned.map((lead) => (
+                <div
+                  key={lead.id}
+                  draggable
+                  onDragStart={(e) => onDragStart(e, lead.id)}
+                  onDragEnd={onDragEnd}
+                  className={`rounded-lg border bg-white px-2 py-1.5 text-xs cursor-grab active:cursor-grabbing
+                    select-none transition-all
+                    ${draggingId === lead.id ? "opacity-40 scale-95" : "hover:border-indigo-300 hover:bg-indigo-50"}
+                    border-gray-200`}
+                >
+                  <p className="font-medium text-gray-800 truncate max-w-[160px]">
+                    {lead.name || lead.company_name}
+                  </p>
+                  <p className="text-gray-400 truncate">{lead.category} · {lead.area}</p>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* ── Right: One lane per employee ── */}
+        {employees.length === 0 ? (
+          <div className="flex-1 flex items-center justify-center text-gray-400 text-sm p-8">
+            No employees found. Add employees first.
+          </div>
+        ) : (
+          employees.map((emp) => {
+            const empLeads = leads.filter((l) => l.assigned_to === emp.id);
+            const isOver = dragOverEmp === emp.id;
+            return (
+              <div
+                key={emp.id}
+                onDragOver={(e) => onDragOver(e, emp.id)}
+                onDragLeave={() => setDragOverEmp(null)}
+                onDrop={(e) => onDrop(e, emp.id)}
+                className={`w-52 flex-shrink-0 border-r border-gray-200 flex flex-col transition-colors
+                  ${isOver ? "bg-green-50 border-green-300" : "bg-white"}`}
+              >
+                {/* Employee header */}
+                <div className={`px-3 py-2 border-b transition-colors
+                  ${isOver ? "bg-green-100 border-green-300" : "bg-gray-50 border-gray-200"}`}>
+                  <p className="text-xs font-semibold text-gray-800 truncate">{emp.full_name}</p>
+                  <p className="text-xs text-gray-400">{empLeads.length} leads assigned</p>
+
+                  {/* Quick-assign N input */}
+                  <div className="flex gap-1 mt-2">
+                    <input
+                      type="number"
+                      min={1}
+                      max={unassigned.length || 1}
+                      placeholder="Count"
+                      value={counts[emp.id] ?? ""}
+                      onChange={(e) => setCounts((c) => ({ ...c, [emp.id]: e.target.value }))}
+                      className="w-16 rounded border border-gray-300 px-1.5 py-0.5 text-xs
+                                 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                      aria-label={`Number of leads to assign to ${emp.full_name}`}
+                    />
+                    <button
+                      onClick={() => handleQuickAssign(emp.id)}
+                      disabled={assigning[emp.id] || unassigned.length === 0}
+                      className="rounded bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40
+                                 text-white text-xs px-2 py-0.5 font-medium transition-colors"
+                    >
+                      {assigning[emp.id] ? "…" : "Assign"}
+                    </button>
+                  </div>
+                  {msgs[emp.id] && (
+                    <p className={`text-xs mt-1 ${msgs[emp.id].type === "success" ? "text-green-600" : "text-red-500"}`}>
+                      {msgs[emp.id].text}
+                    </p>
+                  )}
+                </div>
+
+                {/* Drop zone + current leads */}
+                <div className={`flex-1 overflow-y-auto max-h-60 p-2 space-y-1
+                  ${isOver ? "ring-2 ring-inset ring-green-400 bg-green-50" : ""}`}>
+                  {isOver && (
+                    <div className="rounded-lg border-2 border-dashed border-green-400 bg-green-100
+                                    text-green-700 text-xs text-center py-3 font-medium">
+                      Drop here ↓
+                    </div>
+                  )}
+                  {empLeads.length === 0 && !isOver ? (
+                    <p className="text-xs text-gray-300 text-center py-4">Drop leads here</p>
+                  ) : (
+                    empLeads.map((lead) => (
+                      <div key={lead.id}
+                           className="rounded border border-gray-100 bg-gray-50 px-2 py-1 text-xs text-gray-600">
+                        <p className="font-medium truncate max-w-[170px]">
+                          {lead.name || lead.company_name}
+                        </p>
+                        <p className="text-gray-400 truncate">{lead.category}</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            );
+          })
+        )}
       </div>
     </div>
   );
