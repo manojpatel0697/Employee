@@ -118,7 +118,21 @@ export default function LeadsTable({ leads: initialLeads, employees, secretKey }
   }, [leads, filterStatus, filterEmployee, search, sortKey, sortDir, employees]);
 
   // ── Selection ──────────────────────────────────────────────────
+  // "selectAll" = true means every lead in the filtered set is selected
+  // (even rows not on the current page)
+  const [selectAll, setSelectAll] = useState(false);
+
+  // When selectAll is true, selected contains ALL filtered IDs.
+  // When false, selected contains only individually chosen IDs.
   function toggleOne(id: string) {
+    // If selectAll was on, materialise the full set first then deselect this one
+    if (selectAll) {
+      const next = new Set(filtered.map((l) => l.id));
+      next.delete(id);
+      setSelected(next);
+      setSelectAll(false);
+      return;
+    }
     setSelected((prev) => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
@@ -126,13 +140,77 @@ export default function LeadsTable({ leads: initialLeads, employees, secretKey }
     });
   }
 
-  function toggleAll() {
-    if (selected.size === filtered.length) {
-      setSelected(new Set());
+  /** Toggle all leads on the CURRENT PAGE */
+  function togglePage() {
+    const pageIds = paginated.map((l) => l.id);
+    const allPageSelected = pageIds.every((id) => selectAll || selected.has(id));
+    if (allPageSelected) {
+      // Deselect page (and cancel selectAll)
+      setSelectAll(false);
+      setSelected((prev) => {
+        const next = new Set(prev);
+        pageIds.forEach((id) => next.delete(id));
+        return next;
+      });
     } else {
-      setSelected(new Set(filtered.map((l) => l.id)));
+      // Select all on page
+      setSelected((prev) => {
+        const next = new Set(prev);
+        pageIds.forEach((id) => next.add(id));
+        return next;
+      });
+      setSelectAll(false);
     }
   }
+
+  /** Select ALL leads in the entire filtered set (across all pages) */
+  function selectAllFiltered() {
+    setSelected(new Set(filtered.map((l) => l.id)));
+    setSelectAll(true);
+  }
+
+  /** Clear all selections */
+  function clearAll() {
+    setSelected(new Set());
+    setSelectAll(false);
+    setSelectNInput("");
+  }
+
+  // "Select N" — pick an exact count from the filtered list
+  const [selectNInput, setSelectNInput] = useState("");
+
+  function applySelectN() {
+    const n = parseInt(selectNInput, 10);
+    if (!n || n <= 0) return;
+    const ids = filtered.slice(0, n).map((l) => l.id);
+    setSelected(new Set(ids));
+    setSelectAll(n >= filtered.length);
+  }
+
+  // Effective selected IDs (handles selectAll shortcut)
+  const effectiveSelected: Set<string> = useMemo(
+    () => (selectAll ? new Set(filtered.map((l) => l.id)) : selected),
+    [selectAll, selected, filtered]
+  );
+
+  // ── Pagination ─────────────────────────────────────────────────
+  const PAGE_SIZE = 100;
+  const [page, setPage] = useState(1);
+
+  // Reset page when filters change
+  React.useEffect(() => { setPage(1); }, [filterStatus, filterEmployee, search, sortKey, sortDir]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  const allPageSelected =
+    paginated.length > 0 &&
+    paginated.every((l) => selectAll || selected.has(l.id));
+
+  // Show "select all X leads" banner when current page is all selected
+  // but not every lead in the filtered set is selected yet
+  const showSelectAllBanner =
+    allPageSelected && effectiveSelected.size < filtered.length;
 
   // ── Bulk assign ────────────────────────────────────────────────
   const doAssign = useCallback(async (leadIds: string[], employeeId: string) => {
@@ -163,12 +241,13 @@ export default function LeadsTable({ leads: initialLeads, employees, secretKey }
 
   async function handleBulkAssign() {
     if (!bulkEmployee) { setBulkMsg({ type: "error", text: "Select an employee first." }); return; }
-    if (selected.size === 0) { setBulkMsg({ type: "error", text: "Select at least one lead." }); return; }
-    const ok = await doAssign(Array.from(selected), bulkEmployee);
+    if (effectiveSelected.size === 0) { setBulkMsg({ type: "error", text: "Select at least one lead." }); return; }
+    const ids = Array.from(effectiveSelected);
+    const ok = await doAssign(ids, bulkEmployee);
     if (ok) {
       const name = employees.find((e) => e.id === bulkEmployee)?.full_name ?? "employee";
-      setBulkMsg({ type: "success", text: `✓ ${selected.size.toLocaleString()} leads assigned to ${name}` });
-      setSelected(new Set());
+      setBulkMsg({ type: "success", text: `✓ ${ids.length.toLocaleString()} leads assigned to ${name}` });
+      clearAll();
     }
   }
 
@@ -176,8 +255,6 @@ export default function LeadsTable({ leads: initialLeads, employees, secretKey }
     if (!id) return "—";
     return employees.find((e) => e.id === id)?.full_name ?? "—";
   }
-
-  const allOnPageSelected = filtered.length > 0 && selected.size === filtered.length;
 
   const sortProps = { sortKey, sortDir, onSort: handleSort };
 
@@ -205,9 +282,9 @@ export default function LeadsTable({ leads: initialLeads, employees, secretKey }
         </select>
         <span className="text-xs text-gray-500">
           {filtered.length.toLocaleString()} lead{filtered.length !== 1 ? "s" : ""}
-          {selected.size > 0 && (
+          {effectiveSelected.size > 0 && (
             <span className="ml-2 text-indigo-600 font-medium">
-              · {selected.size.toLocaleString()} selected
+              · {effectiveSelected.size.toLocaleString()} selected
             </span>
           )}
         </span>
@@ -217,11 +294,74 @@ export default function LeadsTable({ leads: initialLeads, employees, secretKey }
         </span>
       </div>
 
+      {/* ── SELECT-N bar ── */}
+      <div className="flex flex-wrap items-center gap-3 rounded-xl bg-gray-50 border border-gray-200 px-4 py-3">
+        <span className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Quick Select</span>
+
+        {/* Preset buttons */}
+        {[50, 100, 250, 500, 1000].map((n) => (
+          <button
+            key={n}
+            onClick={() => { setSelectNInput(String(n)); const ids = filtered.slice(0, n).map((l) => l.id); setSelected(new Set(ids)); setSelectAll(n >= filtered.length); }}
+            disabled={filtered.length === 0}
+            className="rounded-lg border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700
+                       hover:border-indigo-400 hover:text-indigo-700 hover:bg-indigo-50 transition-colors
+                       disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {n.toLocaleString()}
+          </button>
+        ))}
+
+        {/* Custom N input */}
+        <div className="flex items-center gap-1.5">
+          <input
+            type="number"
+            min={1}
+            max={filtered.length}
+            placeholder="Custom…"
+            value={selectNInput}
+            onChange={(e) => setSelectNInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && applySelectN()}
+            className="w-24 rounded-lg border border-gray-300 px-2 py-1 text-xs
+                       focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            aria-label="Custom number of leads to select"
+          />
+          <button
+            onClick={applySelectN}
+            className="rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-3 py-1 font-medium transition-colors"
+          >
+            Select
+          </button>
+        </div>
+
+        {/* Select ALL filtered */}
+        <button
+          onClick={selectAllFiltered}
+          className="rounded-lg border border-indigo-300 bg-indigo-50 hover:bg-indigo-100
+                     text-indigo-700 text-xs px-3 py-1 font-medium transition-colors"
+        >
+          Select all {filtered.length.toLocaleString()}
+        </button>
+
+        {effectiveSelected.size > 0 && (
+          <button
+            onClick={clearAll}
+            className="rounded-lg border border-gray-300 bg-white hover:bg-gray-50
+                       text-gray-500 text-xs px-3 py-1 transition-colors"
+          >
+            Clear selection
+          </button>
+        )}
+      </div>
+
       {/* ── Bulk assign bar ── */}
-      {selected.size > 0 && (
+      {effectiveSelected.size > 0 && (
         <div className="flex flex-wrap items-center gap-3 rounded-xl bg-indigo-50 border border-indigo-200 px-4 py-3">
           <span className="text-sm font-medium text-indigo-800">
-            {selected.size.toLocaleString()} lead{selected.size !== 1 ? "s" : ""} selected
+            {effectiveSelected.size.toLocaleString()} lead{effectiveSelected.size !== 1 ? "s" : ""} selected
+            {selectAll && (
+              <span className="ml-1 text-xs text-indigo-500">(all filtered)</span>
+            )}
           </span>
           <select value={bulkEmployee} onChange={(e) => setBulkEmployee(e.target.value)}
             className="rounded-lg border border-indigo-300 bg-white px-3 py-1.5 text-sm
@@ -230,14 +370,29 @@ export default function LeadsTable({ leads: initialLeads, employees, secretKey }
             {employees.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
           </select>
           <Button variant="primary" size="sm" onClick={handleBulkAssign} disabled={bulkLoading || !bulkEmployee}>
-            {bulkLoading ? "Assigning…" : `Assign ${selected.size.toLocaleString()} leads`}
+            {bulkLoading ? "Assigning…" : `Assign ${effectiveSelected.size.toLocaleString()} leads`}
           </Button>
-          <Button variant="secondary" size="sm" onClick={() => setSelected(new Set())}>Clear</Button>
+          <Button variant="secondary" size="sm" onClick={clearAll}>Clear</Button>
           {bulkMsg && (
             <span className={`text-sm ${bulkMsg.type === "success" ? "text-green-700" : "text-red-600"}`}>
               {bulkMsg.text}
             </span>
           )}
+        </div>
+      )}
+
+      {/* ── "Select all X leads" expansion banner ── */}
+      {showSelectAllBanner && (
+        <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-2.5 flex items-center justify-between gap-3">
+          <p className="text-sm text-amber-800">
+            All <span className="font-semibold">{paginated.length}</span> leads on this page are selected.
+          </p>
+          <button
+            onClick={selectAllFiltered}
+            className="text-sm font-semibold text-amber-700 hover:text-amber-900 underline underline-offset-2"
+          >
+            Select all {filtered.length.toLocaleString()} leads in this view
+          </button>
         </div>
       )}
 
@@ -256,13 +411,13 @@ export default function LeadsTable({ leads: initialLeads, employees, secretKey }
 
       {/* ── Mobile cards ── */}
       <div className="md:hidden space-y-3">
-        {filtered.length === 0 ? (
+        {paginated.length === 0 ? (
           <p className="text-center text-gray-400 py-8">No leads found.</p>
         ) : (
-          filtered.map((lead) => (
-            <div key={lead.id} className={`rounded-2xl bg-white shadow-sm ring-1 ring-gray-200 p-4 space-y-2 ${selected.has(lead.id) ? "ring-indigo-400 bg-indigo-50" : ""}`}>
+          paginated.map((lead) => (
+            <div key={lead.id} className={`rounded-2xl bg-white shadow-sm ring-1 ring-gray-200 p-4 space-y-2 ${effectiveSelected.has(lead.id) ? "ring-indigo-400 bg-indigo-50" : ""}`}>
               <div className="flex items-start gap-2">
-                <input type="checkbox" checked={selected.has(lead.id)}
+                <input type="checkbox" checked={effectiveSelected.has(lead.id)}
                   onChange={() => toggleOne(lead.id)}
                   className="mt-1 rounded text-indigo-600"
                   aria-label={`Select ${lead.name || lead.company_name}`} />
@@ -291,8 +446,8 @@ export default function LeadsTable({ leads: initialLeads, employees, secretKey }
           <thead className="bg-gray-50">
             <tr>
               <th className="px-4 py-3 w-10">
-                <input type="checkbox" checked={allOnPageSelected} onChange={toggleAll}
-                  className="rounded text-indigo-600" aria-label="Select all" />
+                <input type="checkbox" checked={allPageSelected} onChange={togglePage}
+                  className="rounded text-indigo-600" aria-label="Select all on this page" />
               </th>
               <SortTh col="sl_no"          label="Sl No"           {...sortProps} />
               <SortTh col="name"           label="Name"            {...sortProps} />
@@ -311,11 +466,11 @@ export default function LeadsTable({ leads: initialLeads, employees, secretKey }
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 bg-white">
-            {filtered.map((lead) => (
+            {paginated.map((lead) => (
               <tr key={lead.id}
-                  className={`transition-colors ${selected.has(lead.id) ? "bg-indigo-50" : "hover:bg-gray-50"}`}>
+                  className={`transition-colors ${effectiveSelected.has(lead.id) ? "bg-indigo-50" : "hover:bg-gray-50"}`}>
                 <td className="px-4 py-3">
-                  <input type="checkbox" checked={selected.has(lead.id)} onChange={() => toggleOne(lead.id)}
+                  <input type="checkbox" checked={effectiveSelected.has(lead.id)} onChange={() => toggleOne(lead.id)}
                     className="rounded text-indigo-600"
                     aria-label={`Select ${lead.name || lead.company_name}`} />
                 </td>
@@ -342,7 +497,7 @@ export default function LeadsTable({ leads: initialLeads, employees, secretKey }
                 </td>
               </tr>
             ))}
-            {filtered.length === 0 && (
+            {paginated.length === 0 && (
               <tr>
                 <td colSpan={11} className="px-4 py-8 text-center text-gray-400">No leads found.</td>
               </tr>
@@ -350,6 +505,50 @@ export default function LeadsTable({ leads: initialLeads, employees, secretKey }
           </tbody>
         </table>
       </div>
+
+      {/* ── Pagination ── */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between px-1">
+          <p className="text-xs text-gray-500">
+            Page {page} of {totalPages.toLocaleString()} &nbsp;·&nbsp;
+            showing {((page - 1) * PAGE_SIZE + 1).toLocaleString()}–{Math.min(page * PAGE_SIZE, filtered.length).toLocaleString()} of {filtered.length.toLocaleString()}
+          </p>
+          <div className="flex items-center gap-1">
+            <button onClick={() => setPage(1)} disabled={page === 1}
+              className="rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed">
+              «
+            </button>
+            <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}
+              className="rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed">
+              ‹ Prev
+            </button>
+
+            {/* Page number buttons — show window of 5 */}
+            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+              const start = Math.max(1, Math.min(page - 2, totalPages - 4));
+              return start + i;
+            }).map((p) => (
+              <button key={p} onClick={() => setPage(p)}
+                className={`rounded px-2.5 py-1 text-xs font-medium transition-colors
+                  ${p === page
+                    ? "bg-indigo-600 text-white"
+                    : "text-gray-600 hover:bg-gray-100"}`}>
+                {p}
+              </button>
+            ))}
+
+            <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+              className="rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed">
+              Next ›
+            </button>
+            <button onClick={() => setPage(totalPages)} disabled={page === totalPages}
+              className="rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed">
+              »
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
